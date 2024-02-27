@@ -1,0 +1,278 @@
+package fansiterm
+
+// ansi.go is largely just an implementation of https://en.wikipedia.org/wiki/ANSI_escape_code
+
+import (
+	"bytes"
+	"strconv"
+)
+
+// These Colors are for the 4-bit ANSI colors
+// Since they're exported, they can be overriden.
+// It would be convient to have a pallet, but given
+// TrueColor support, why bother?
+
+var (
+	ColorBlack         = NewOpaqueColor(0, 0, 0)
+	ColorBrightBlack   = NewOpaqueColor(85, 85, 85)
+	ColorRed           = NewOpaqueColor(127, 0, 0)
+	ColorBrightRed     = NewOpaqueColor(255, 0, 0)
+	ColorGreen         = NewOpaqueColor(0, 170, 0)
+	ColorBrightGreen   = NewOpaqueColor(85, 255, 85)
+	ColorYellow        = NewOpaqueColor(170, 85, 0)
+	ColorBrightYellow  = NewOpaqueColor(255, 255, 85)
+	ColorBlue          = NewOpaqueColor(0, 0, 170)
+	ColorBrightBlue    = NewOpaqueColor(85, 85, 255)
+	ColorMagenta       = NewOpaqueColor(170, 0, 170)
+	ColorBrightMagenta = NewOpaqueColor(255, 85, 255)
+	ColorCyan          = NewOpaqueColor(0, 170, 170)
+	ColorBrightCyan    = NewOpaqueColor(85, 255, 255)
+	ColorWhite         = NewOpaqueColor(240, 240, 240) // Okay, I deviated from VGA colors here. VGA "white" is way too gray.
+	ColorBrightWhite   = NewOpaqueColor(255, 255, 255)
+)
+
+// getNumericArgs beaks apart seq at ';' characters and then tries to convert
+// each piece into an integer. If it fails to convert, def is used.
+func getNumericArgs(seq []byte, def int) (args []int) {
+	for _, arg := range bytes.Split(seq, []byte{';'}) {
+		num, err := strconv.Atoi(string(arg))
+		if err != nil {
+			num = def
+		}
+		args = append(args, num)
+	}
+	return args
+}
+
+func bound(x, minimum, maximum int) int {
+	return min(max(x, minimum), maximum)
+}
+
+func (d *Device) HandleEscSequence(seq []byte) {
+	// last byte of seq tells us what function we're doing
+	if len(seq) == 0 {
+		return
+	}
+	args := getNumericArgs(seq[:len(seq)-1], 1)
+	switch seq[len(seq)-1] {
+	case 'A': // Cursor Up, one optional numeric arg, default 1
+		if len(args) == 1 {
+			d.MoveCursorRel(0, -args[0])
+		}
+	case 'B': // Cursor Down, one optional numeric arg, default 1
+		if len(args) == 1 {
+			d.MoveCursorRel(0, args[0])
+		}
+	case 'C': // Cursor Right, one optional numeric arg, default 1
+		if len(args) == 1 {
+			d.MoveCursorRel(args[0], 0)
+		}
+	case 'D': // Cursor Left, one optional numeric arg, default 1
+		if len(args) == 1 {
+			d.MoveCursorRel(-args[0], 0)
+		}
+	case 'E': // Moves cursor to beginning of the line n (default 1) lines down.
+		if len(args) == 1 {
+			d.MoveCursorRel(-d.cols, args[0])
+		}
+	case 'F': // Moves cursor to beginning of the line n (default 1) lines up.
+		if len(args) == 1 {
+			d.MoveCursorRel(-d.cols, -args[0])
+		}
+	case 'G': // Moves the cursor to column n (default 1).
+		if len(args) == 1 {
+			d.MoveCursorAbs(args[0], d.CursorRow())
+		}
+	case 'H': // Cursor position, Moves the cursor to row n, column m. The values are 1-based, and default to 1 (top left corner) if omitted. A sequence such as CSI ;5H is a synonym for CSI 1;5H as well as CSI 17;H is the same as CSI 17H and CSI 17;1H
+		var n, m int = 1, 1
+		switch len(args) {
+		case 2:
+			m = args[1]
+			fallthrough
+		case 1:
+			n = args[0]
+		}
+
+		d.MoveCursorAbs(m-1, n-1)
+	case 'J': // Clears part of the screen. If n is 0 (or missing), clear from cursor to end of screen. If n is 1, clear from cursor to beginning of the screen. If n is 2, clear entire screen (and moves cursor to upper left on DOS ANSI.SYS). If n is 3, clear entire screen and delete all lines saved in the scrollback buffer (this feature was added for xterm and is supported by other terminal applications).
+		args = getNumericArgs(seq[:len(seq)-1], 0)
+		r, c := d.offsetToRowCol(d.cursorPos)
+		switch args[0] {
+		case 0:
+			// clear from cursor to EOL
+			d.Clear(c+1, r, d.cols, r+1)
+			// clear area below cursor
+			d.Clear(0, r+1, d.cols, d.rows)
+		case 1:
+			// clear from cursor to beginning of line
+			d.Clear(0, r, c, r+1)
+			// clear area above cursor
+			d.Clear(0, 0, d.cols, r)
+		case 2:
+			// clear whole screen
+			d.Clear(0, 0, d.cols, d.rows)
+		}
+
+	case 'K': // Erases part of the line. If n is 0 (or missing), clear from cursor to the end of the line. If n is 1, clear from cursor to beginning of the line. If n is 2, clear entire line. Cursor position does not change.
+		args = getNumericArgs(seq[:len(seq)-1], 0)
+		r, c := d.offsetToRowCol(d.cursorPos)
+		switch args[0] {
+		case 0:
+			// clear from cursor to EOL
+			d.Clear(c+1, r, d.cols, r+1)
+		case 1:
+			// clear from cursor to beginning of line
+			d.Clear(0, r, c, r+1)
+		case 2:
+			// clear whole line
+			d.Clear(0, r, d.cols, r+1)
+		}
+	case 'S': // Scroll whole page up by n (default 1) lines. New lines are added at the bottom.
+		if len(args) == 1 {
+			d.Scroll(args[0])
+		}
+	case 'T': // Scroll whole page down by n (default 1) lines. New lines are added at the top.
+		if len(args) == 1 {
+			d.Scroll(args[0])
+		}
+	case 'm': // CoLoRs!1!! AKA SGR (Select Graphic Rendition)
+		args := getNumericArgs(seq[:len(seq)-1], 0)
+
+		// TODO: process args in a loop since you can chain them together
+
+		for i := 0; i < len(args); i++ {
+			switch args[i] {
+			case 0:
+				d.attr = AttrDefault
+			case 1:
+				d.attr.Bold = true
+			case 22:
+				d.attr.Bold = false
+			case 3:
+				d.attr.Italic = true
+			case 23:
+				d.attr.Italic = false
+			case 4:
+				d.attr.Underline = true
+			case 21:
+				d.attr.DoubleUnderline = true
+			case 24:
+				d.attr.Underline = false
+				d.attr.DoubleUnderline = false
+			case 5:
+				d.attr.Blink = true
+			case 25:
+				d.attr.Blink = false
+			case 7:
+				d.attr.Reversed = true
+			case 27:
+				d.attr.Reversed = false
+			case 9:
+				d.attr.Strike = true
+			case 29:
+				d.attr.Strike = false
+			case 30:
+				d.attr.Fg = ColorBlack
+			case 31:
+				d.attr.Fg = ColorRed
+			case 32:
+				d.attr.Fg = ColorGreen
+			case 33:
+				d.attr.Fg = ColorYellow
+			case 34:
+				d.attr.Fg = ColorBlue
+			case 35:
+				d.attr.Fg = ColorMagenta
+			case 36:
+				d.attr.Fg = ColorCyan
+			case 37:
+				d.attr.Fg = ColorWhite
+			case 40:
+				d.attr.Bg = ColorBlack
+			case 41:
+				d.attr.Bg = ColorRed
+			case 42:
+				d.attr.Bg = ColorGreen
+			case 43:
+				d.attr.Bg = ColorYellow
+			case 44:
+				d.attr.Bg = ColorBlue
+			case 45:
+				d.attr.Bg = ColorMagenta
+			case 46:
+				d.attr.Bg = ColorCyan
+			case 47:
+				d.attr.Bg = ColorWhite
+			case 90:
+				d.attr.Fg = ColorBrightBlack
+			case 91:
+				d.attr.Fg = ColorBrightRed
+			case 92:
+				d.attr.Fg = ColorBrightGreen
+			case 93:
+				d.attr.Fg = ColorBrightYellow
+			case 94:
+				d.attr.Fg = ColorBrightBlue
+			case 95:
+				d.attr.Fg = ColorBrightMagenta
+			case 96:
+				d.attr.Fg = ColorBrightCyan
+			case 97:
+				d.attr.Fg = ColorBrightWhite
+			case 100:
+				d.attr.Bg = ColorBrightBlack
+			case 101:
+				d.attr.Bg = ColorBrightRed
+			case 102:
+				d.attr.Bg = ColorBrightGreen
+			case 103:
+				d.attr.Bg = ColorBrightYellow
+			case 104:
+				d.attr.Bg = ColorBrightBlue
+			case 105:
+				d.attr.Bg = ColorBrightMagenta
+			case 106:
+				d.attr.Bg = ColorBrightCyan
+			case 107:
+				d.attr.Bg = ColorBrightWhite
+
+			// 24bit True Color support
+			case 38, 48:
+				if i+1 >= len(args) || args[i+1] != 2 {
+					continue
+				}
+				i += 2
+				// can proceed
+				var r, g, b uint8
+				r, g, b = getRGB(args[i:])
+				i += 3
+				if args[i-5] == 38 {
+					d.attr.Fg = NewOpaqueColor(r, g, b)
+				} else {
+					d.attr.Bg = NewOpaqueColor(r, g, b)
+				}
+
+			}
+
+		}
+	}
+}
+
+func getRGB(args []int) (r, g, b uint8) {
+	if len(args) > 3 {
+		args = args[:3]
+	}
+	switch len(args) {
+	case 0:
+		// nothing
+	case 3:
+		b = uint8(args[2])
+		fallthrough
+	case 2:
+		g = uint8(args[1])
+		fallthrough
+	case 1:
+		r = uint8(args[0])
+	}
+	return
+}
