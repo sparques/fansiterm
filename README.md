@@ -1,3 +1,5 @@
+![Fansiterm Screenshot](screenshot.png)
+
 # FANSITERM
 
 Fake (virtual) ANSI TERMinal. 
