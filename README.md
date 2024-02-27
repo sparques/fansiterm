@@ -33,15 +33,16 @@ If Device is initialized with a nil image buffer, it allocates its own buffer. O
 
 The main purpose of this package is for use on rather low-power microcontrollers, so some standard features for terminal emulators are not implemented.
 
-	- Blinking text and blink cursors
-		- this would require a some kind of timer-callback
-	- Resizable Text
-		- Right now, the pre-rendered inconsolata.Regular8x16 and inconsolata.Bold8x16 are used.
-	- Color Pallet / 256-color
-		- The standard 4-bit color palette is supported and 24-bit True Color is supported; 256 seems redundant to me.
+  - Blinking text and blink cursors
+    - this would require a some kind of timer-callback
+  - Resizable Text
+    - Right now, the pre-rendered inconsolata.Regular8x16 and inconsolata.Bold8x16 are used.
+  - Color Pallet / 256-color
+    - The standard 4-bit color palette is supported and 24-bit True Color is supported; 256 seems redundant to me.
 
 # TODO
 
+ - Package documentation
  - Test on real hardware
  - 1-bit color/rendering support for very-very-constrained systems
  - More configurable font / better font configuration
@@ -59,10 +60,10 @@ I want to keep a very stripped down, barebones version of fansiterm that will wo
 ![Fansiterm Screenshot](screenshot.png)
 
 The screenshot demonstrates:
-	- FANSITERM is colored using inverted VGA color ( SGR CSI34;7m )
-	- The trademark character (™) is present in inconsolata.Regular8x16 and rendered correctly here.
-	- On either end of FANSITERM are custom tiles, defined using 8x16 pixel PNGs and set to represent the characters '(' and ')' in the alternate chracter set (actived with the SHIFT-OUT byte, 0x0E, and deactived with SHIFT-IN byte, 0x0F).
-	- Custom rounded-endcap tiles are used to surround 433 MHz and KHz, also via alternate chracter set (and mapped to '{' and '}').
-	- The distance between 'Freq:' and '443 MHz' and 'Bandwidth:' and '005 KHz' are managed via tab characters.
-	- The gradient bar is implemented using 24-bit True Color.
-	- Finally, the cursor is a block style cursor. All cursor shapes are implemented by inverting the colors they land over top.
+  - FANSITERM is colored using inverted VGA color ( SGR CSI34;7m )
+  - The trademark character (™) is present in inconsolata.Regular8x16 and rendered correctly here.
+  - On either end of FANSITERM are custom tiles, defined using 8x16 pixel PNGs and set to represent the characters '(' and ')' in the alternate chracter set (actived with the SHIFT-OUT byte, 0x0E, and deactived with SHIFT-IN byte, 0x0F).
+  - Custom rounded-endcap tiles are used to surround 433 MHz and KHz, also via alternate chracter set (and mapped to '{' and '}').
+  - The distance between 'Freq:' and '443 MHz' and 'Bandwidth:' and '005 KHz' are managed via tab characters.
+  - The gradient bar is implemented using 24-bit True Color.
+  - Finally, the cursor is a block style cursor. All cursor shapes are implemented by inverting the colors they land over top.
