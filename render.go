@@ -215,7 +215,7 @@ func (d *Device) Clear(x1, y1, x2, y2 int) {
 }
 
 // invertColors composites an image.Image, overriding the At() method
-// so that colors returned are inverted. This is primarly for drawing
+// so that colors returned are inverted. This is primarily for drawing
 // the cursor.
 type invertColors struct {
 	image.Image

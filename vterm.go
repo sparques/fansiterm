@@ -281,6 +281,14 @@ func (d *Device) Scroll(amount int) {
 	}
 	amount = -amount
 
+	//shift the upper portion of the image down
+	draw.Draw(d.buf,
+		image.Rect(0, amount*d.cell.Max.Y, d.cols*d.cell.Max.X, d.rows*d.cell.Max.Y),
+		d.buf,
+		image.Pt(0, (d.rows-amount)*d.cell.Max.Y),
+		draw.Src)
+	// fill in scrolls section with background
+	d.Clear(0, 0, d.cols, amount)
 }
 
 func (d *Device) CursorCol() int {
