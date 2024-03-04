@@ -22,11 +22,11 @@ If Device is initialized with a nil image buffer, it allocates its own buffer. O
 
  - Cursor styles: Block, Beam, Underscore
  - Bell is supported: a callback is provided for when the terminal receives a \a (bell character). So you could trigger a beep via a speaker and PWM or blink an LED or blink the backlight, etc.
- - Standard cursor manipulation supported,
+ - Standard cursor manipulation supported.
  - Regular and Bold Font
  - Underline, Double Underline, Strikethrough
  - Custom Tile loading for alternate character set (shift-out character set, commonly used for line-drawing/pseudo graphics)
- - Font is rendered using 8-bit Alpha mask, allowing for clean blending and anti-aliased rendering of glyphs. 
+ - Font is rendered using an 8-bit Alpha mask, allowing for clean blending and anti-aliased rendering of glyphs.
  	
 
 # Non-Features
@@ -34,11 +34,13 @@ If Device is initialized with a nil image buffer, it allocates its own buffer. O
 The main purpose of this package is for use on rather low-power microcontrollers, so some standard features for terminal emulators are not implemented.
 
   - Blinking text and blink cursors
-    - this would require a some kind of timer-callback
+    - this would require a some kind of timer-callback. As it is, fansiterm is only using CPU when bytes are being written to it.
   - Resizable Text
     - Right now, the pre-rendered inconsolata.Regular8x16 and inconsolata.Bold8x16 are used.
+    - It's possible to use basicfont.Regular7x13, but you have to give up bold support.
   - Color Pallet / 256-color
     - The standard 4-bit color palette is supported and 24-bit True Color is supported; 256 seems redundant to me.
+  - Hardware acceleration. Fansiterm remains aganostic of what it's rendering to and thus can't take advantage of any double-buffers or hardware-cursors _on its own_. Backwards compatible PRs to improve hardware support / hardware acceleration are very much welcome.
 
 # TODO
 
@@ -60,7 +62,7 @@ I want to keep a very stripped down, barebones version of fansiterm that will wo
 ![Fansiterm Screenshot](screenshot.png)
 
 The screenshot demonstrates:
-  - FANSITERM is colored using inverted VGA color ( SGR CSI34;7m )
+  - FANSITERM is colored using inverted VGA color ( SGR CSI34;7m ) and is also bold (SGR CSI1m).
   - The trademark character (™) is present in inconsolata.Regular8x16 and rendered correctly here.
   - On either end of FANSITERM are custom tiles, defined using 8x16 pixel PNGs and set to represent the characters '(' and ')' in the alternate chracter set (actived with the SHIFT-OUT byte, 0x0E, and deactived with SHIFT-IN byte, 0x0F).
   - Custom rounded-endcap tiles are used to surround 433 MHz and KHz, also via alternate chracter set (and mapped to '{' and '}').

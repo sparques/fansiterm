@@ -119,7 +119,7 @@ func (d *Device) HandleEscSequence(seq []byte) {
 		switch args[0] {
 		case 0:
 			// clear from cursor to EOL
-			d.Clear(c+1, r, d.cols, r+1)
+			d.Clear(c, r, d.cols, r+1)
 		case 1:
 			// clear from cursor to beginning of line
 			d.Clear(0, r, c, r+1)
@@ -252,10 +252,30 @@ func (d *Device) HandleEscSequence(seq []byte) {
 					d.attr.Bg = NewOpaqueColor(r, g, b)
 				}
 
-			}
+			} // switch for SGR
 
 		}
-	}
+	case 'l', 'h': // on/off extensions
+		if seq[0] != '?' || len(seq) < 2 {
+			return
+		}
+		args := getNumericArgs(seq[1:len(seq)-1], 0)
+		switch args[0] {
+		case 25: // show/hide cursor
+			if seq[len(seq)-1] == 'l' {
+				d.showCursor = false
+				if d.cursorVisible {
+					d.toggleCursor()
+				}
+			} else {
+				d.showCursor = true
+			}
+		}
+	case 's': // save cursor position
+		d.cursorPosPrev = d.cursorPos
+	case 'u': // restore cursor position
+		d.cursorPos = d.cursorPosPrev
+	} // switch seq[len(seq)-1]
 }
 
 func getRGB(args []int) (r, g, b uint8) {

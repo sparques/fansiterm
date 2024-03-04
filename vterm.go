@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"image"
 	"image/draw"
+	"slices"
+	"time"
 
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/inconsolata"
@@ -17,11 +19,16 @@ escape sequences.
 type Device struct {
 	// BellFunc is called if it is non-null and the terminal would
 	// display a bell character
+	// TODO: Implement affirmative beep (default) and negative acknowledge beep
+	// Negative acknowledge is produced when \a is sent while in SHIFT-OUT mode.
+	// Affirmative: C-G (quarter notes?)
+	// NAK: C♭ (whole note?)
 	BellFunc func()
 	Config   Config
 
-	cols, rows int
-	cursorPos  int
+	cols, rows    int
+	cursorPos     int
+	cursorPosPrev int
 	// showCursor is whether or not we're supposed to be showing the cursor
 	showCursor bool
 	// curosrVisible is whether the curosr is currently displayed
@@ -144,8 +151,20 @@ func NewAtResolution(x, y int, buf draw.Image) *Device {
 
 	draw.Draw(buf, buf.Bounds(), image.Black, image.Point{}, draw.Src)
 
-	return New(cols, rows, NewImageTranslate(offset, buf))
+	if offset.X == 0 && offset.Y == 0 {
+		// no offset needed, skip wrapping buf and save us some memory and cycles
+		return New(cols, rows, buf)
+	} else {
+		return New(cols, rows, NewImageTranslate(offset, buf))
+	}
 
+}
+
+// VisualBell inverts the screen for a quarter second.
+func (d *Device) VisualBell() {
+	draw.Draw(d.buf, d.buf.Bounds(), invertColors{d.buf}, image.Point{}, draw.Src)
+	time.Sleep(time.Second / 4)
+	draw.Draw(d.buf, d.buf.Bounds(), invertColors{d.buf}, image.Point{}, draw.Src)
 }
 
 /* Broken: need to make work with cursor display
@@ -178,13 +197,7 @@ func (d *Device) Write(data []byte) (n int, err error) {
 		d.toggleCursor()
 	}
 
-	// Safe shortcut? If no control characters, render all
-	// Disabled because need to fix RenderRune -> RenderRunes
-	/*
-		if len(runes) <= d.ColsRemaing() && !bytes.ContainsFunc(data, isControl) {
-				d.RenderBytes(data)
-			}
-	*/
+	var endIdx int
 	for i := 0; i < len(runes); i++ {
 		switch runes[i] {
 		case '\a': // bell
@@ -221,9 +234,24 @@ func (d *Device) Write(data []byte) (n int, err error) {
 				d.HandleEscSequence([]byte(string(runes[start : i+1])))
 			}
 		default:
-			// write character to buf
-			d.RenderRune(runes[i])
-			d.MoveCursorRight()
+			// consume as many non-control characters as possible
+			// render these with RenderRunes
+			// increment d.cursorPos; increment i
+			// write characters to buf
+
+			// Originally I did this with strings.IndexFunc(string(runes[i:]), isControl)
+			// however this seems to return the byte offset rather than the rune offset
+			endIdx = slices.IndexFunc(runes[i:], isControl)
+			if endIdx == -1 {
+				endIdx = len(runes[i:])
+			}
+			// whichever comes first: end of runes, End of row, or a control char
+			endIdx = min(len(runes[i:]), d.ColsRemaining(), endIdx)
+
+			d.RenderRunes(runes[i : i+endIdx])
+			d.cursorPos += endIdx
+			i += endIdx - 1
+			d.ScrollToCursor()
 		}
 	}
 
@@ -252,6 +280,7 @@ func (d *Device) Scroll(amount int) {
 		return
 	}
 	amount = -amount
+
 }
 
 func (d *Device) CursorCol() int {

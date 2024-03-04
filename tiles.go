@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"golang.org/x/image/font"
+	"golang.org/x/image/font/inconsolata"
 	"golang.org/x/image/math/fixed"
 )
 
@@ -15,6 +16,8 @@ import (
 // image data consisting solely of alpha channel.
 // TODO: implement variable sized tiles, currently only 8x16 is supported
 type TileSet map[rune]image.Image
+
+var EmptyTile = image.NewAlpha(image.Rect(0, 0, 8, 16))
 
 func NewTileSet() TileSet {
 	return make(TileSet)
@@ -45,9 +48,16 @@ func (ts TileSet) Glyph(dot fixed.Point26_6, r rune) (
 	glyph, ok := ts[r]
 
 	if !ok {
-		return
+		// do nothing except advance the cursor
+		//advance = fixed.I(8)
+		//return
+
+		// or, do nothing more explicitly
+		//return EmptyTile.Bounds(), EmptyTile, image.Point{}, fixed.I(EmptyTile.Bounds().Dx()), ok
+
+		// or
 		// use inconsolata as fallback?
-		//return inconsolata.Regular8x16.Glyph(dot, r)
+		return inconsolata.Regular8x16.Glyph(dot.Sub(fixed.P(0, 3)), r)
 	}
 
 	// Pretty sure I'm doing something wrong here, but tiles/glyphs only lines up if I do this
