@@ -1,6 +1,9 @@
 ![Fansiterm Screenshot](screenshot.png)
 
 # FANSITERM
+[![Coverage Status](https://coveralls.io/repos/github/sparques/fansiterm/badge.svg?branch=master)](https://coveralls.io/github/sparques/fansiterm?branch=master)
+[![Go ReportCard](https://goreportcard.com/badge/sparques/fansiterm)](https://goreportcard.com/report/sparques/fansiterm)
+[![GoDoc](https://godoc.org/github.com/golang/gddo?status.svg)](https://pkg.go.dev/github.com/sparques/fansiterm)
 
 Fake (virtual) ANSI TERMinal. 
 
