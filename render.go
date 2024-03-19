@@ -10,68 +10,6 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
-func (d *Device) RenderRune(sym rune) {
-	r, c := d.offsetToRowCol(d.cursorPos)
-	if d.attr.Reversed {
-		d.fontDraw.Src = d.attr.Bg
-	} else {
-		d.fontDraw.Src = d.attr.Fg
-	}
-
-	// Which Face are we using? Note that useAltCharSet overrides Bold and Italics
-	switch {
-	case d.useAltCharSet:
-		d.fontDraw.Face = d.altCharSet
-	case d.attr.Bold:
-		d.fontDraw.Face = inconsolata.Bold8x16
-	default:
-		d.fontDraw.Face = inconsolata.Regular8x16
-	}
-
-	// draw background
-	d.Clear(c, r, c+1, r+1)
-
-	// draw character
-	// Ascent is pixels above baseline and descent is pixels below baseline. We want the bottom of the glyph aligned with bottom
-	// of the cell
-	//d.fontDraw.Dot = fixed.P(d.cell.Max.X*c, d.cell.Max.Y*(r+1)-d.fontDescent)
-	d.fontDraw.Dot = fixed.P(d.cell.Max.X*c, d.cell.Max.Y*(r+1)-d.fontDraw.Face.Metrics().Descent.Round())
-	d.fontDraw.DrawString(string([]rune{sym})) // sure hope this rune -> []rune -> string cast isn't as inefficient as it looks
-
-	// TODO: clean this mess up up; really could use better drawing routines
-	if d.attr.Strike {
-		// draw a single pixel high line through the center of the whole cell
-		draw.Draw(d.buf,
-			image.Rect(0, d.cell.Max.Y/2, d.cell.Max.X, d.cell.Max.Y/2+1).Add(image.Pt(d.cell.Max.X*c, d.cell.Max.Y*(r))),
-			d.fontDraw.Src,
-			image.Point{},
-			draw.Src)
-	}
-
-	if d.attr.Underline {
-		// draw a single pixel high line through the the whole cell, 3px above the bottom of the cell
-		draw.Draw(d.buf,
-			image.Rect(0, d.cell.Max.Y-1, d.cell.Max.X, d.cell.Max.Y).Add(image.Pt(d.cell.Max.X*c, d.cell.Max.Y*(r))),
-			d.fontDraw.Src,
-			image.Point{},
-			draw.Src)
-	}
-
-	if d.attr.DoubleUnderline {
-		draw.Draw(d.buf,
-			image.Rect(0, d.cell.Max.Y-3, d.cell.Max.X, d.cell.Max.Y-2).Add(image.Pt(d.cell.Max.X*c, d.cell.Max.Y*(r))),
-			d.fontDraw.Src,
-			image.Point{},
-			draw.Src)
-		draw.Draw(d.buf,
-			image.Rect(0, d.cell.Max.Y-1, d.cell.Max.X, d.cell.Max.Y).Add(image.Pt(d.cell.Max.X*c, d.cell.Max.Y*(r))),
-			d.fontDraw.Src,
-			image.Point{},
-			draw.Src)
-	}
-
-}
-
 // RenderRunes does not do *any* interpretation of escape codes or control characters like \r or \n.
 // It simply renders a slice of runes (as a string) at the cursor position. It is up to the caller
 // of RenderRunes to ensure there's enough space for the runes on the buffer and to process any
@@ -225,6 +163,24 @@ func (ic invertColors) At(x, y int) color.Color {
 	r, g, b, a := ic.Image.At(x, y).RGBA()
 	return color.RGBA{255 - uint8(r), 255 - uint8(g), 255 - uint8(b), uint8(a)}
 }
+
+// faintColors composites image.Image and draw.Image, overriding At() and Set()
+// so that the alpha is half of the underlying image
+type faintColors struct {
+	image.Image
+}
+
+func (fc faintColors) At(x, y int) color.Color {
+	r, g, b, _ := fc.Image.At(x, y).RGBA()
+	return color.RGBA{uint8(r), uint8(g), uint8(b), uint8(0)}
+}
+
+/*
+func (fc faintColors) Set(x, y int, c color.Color) {
+	r, g, b, a := c.RGBA()
+	fc.Image.Set(x, y, color.RGBA{uint8(r), uint8(g), uint8(b), uint8(a) / 2})
+}
+*/
 
 // imageTranslate works a bit like the Subimage() method on various image package
 // objects. However, it wraps a draw.Image allowing both calls to Set() and At().

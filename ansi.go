@@ -3,12 +3,14 @@ package fansiterm
 // ansi.go is largely just an implementation of https://en.wikipedia.org/wiki/ANSI_escape_code
 
 import (
-	"bytes"
+	"errors"
+	"fmt"
 	"strconv"
+	"strings"
 )
 
 // These Colors are for the 4-bit ANSI colors
-// Since they're exported, they can be overriden.
+// Since they're exported, they can be overridden.
 // It would be convient to have a pallet, but given
 // TrueColor support, why bother?
 
@@ -28,13 +30,47 @@ var (
 	ColorCyan          = NewOpaqueColor(0, 170, 170)
 	ColorBrightCyan    = NewOpaqueColor(85, 255, 255)
 	ColorWhite         = NewOpaqueColor(240, 240, 240) // Okay, I deviated from VGA colors here. VGA "white" is way too gray.
-	ColorBrightWhite   = NewOpaqueColor(255, 255, 255)
+	// ColorWhite       = NewOpaqueColor(170, 170, 170)
+	ColorBrightWhite = NewOpaqueColor(255, 255, 255)
 )
+
+var ErrEscapeSequenceIncomplete = errors.New("escape sequence incomplete")
+
+// consumeEscSequence figures out where the escape sequence in data ends.
+// It assumes data[0] == 0x1b.
+func consumeEscSequence(data []rune) (n int, err error) {
+	if len(data) < 1 {
+		// need more bytes
+		return 0, ErrEscapeSequenceIncomplete
+	}
+	switch data[1] {
+	case 'X', ']', 'P': // SOS, OSC, and DCS
+		// For Start of String, Operating System Command, and Device Control String, read
+		// until we encounter String Terminator, ESC\
+		for n = 1; n < len(data); n++ {
+			if data[n] == '\b' || (data[n-1] == 0x1b && data[n] == '\\') {
+				return n + 1, nil
+			}
+		}
+	case '[': // CSI
+		for n = 2; n < len(data); n++ {
+			if data[n] >= 0x40 {
+				return n + 1, nil
+			}
+		}
+	default:
+		// Unsupported escape sequence, just skip it?
+		return 2, nil
+	}
+
+	// got to here? need more data
+	return 0, ErrEscapeSequenceIncomplete
+}
 
 // getNumericArgs beaks apart seq at ';' characters and then tries to convert
 // each piece into an integer. If it fails to convert, def is used.
-func getNumericArgs(seq []byte, def int) (args []int) {
-	for _, arg := range bytes.Split(seq, []byte{';'}) {
+func getNumericArgs(seq []rune, def int) (args []int) {
+	for _, arg := range strings.Split(string(seq), ";") {
 		num, err := strconv.Atoi(string(arg))
 		if err != nil {
 			num = def
@@ -48,7 +84,39 @@ func bound(x, minimum, maximum int) int {
 	return min(max(x, minimum), maximum)
 }
 
-func (d *Device) HandleEscSequence(seq []byte) {
+// HandleEscSequence handles escape sequences. This should be the whole complete
+func (d *Device) HandleEscSequence(seq []rune) {
+	fmt.Println("ESC Seq:", seq)
+	switch seq[1] {
+	case '[':
+		d.HandleCSISequence(seq[2:])
+	case ']':
+		d.HandleOSCSequence(seq[2:])
+	}
+}
+
+func trimST(seq []rune) []rune {
+	switch {
+	case seq[len(seq)-1] == '\b':
+		return seq[:len(seq)-1]
+	case seq[len(seq)-2] == 0x1b && seq[len(seq)-1] == '\\':
+		return seq[:len(seq)-2]
+	default:
+		return seq
+	}
+}
+
+func (d *Device) HandleOSCSequence(seq []rune) {
+	seq = trimST(seq)
+	args := getNumericArgs(seq, 0)
+	switch args[0] {
+	case 0:
+		// xterm set window title
+		d.Properties[PropertyWindowTitle] = string(seq[2:])
+	}
+}
+
+func (d *Device) HandleCSISequence(seq []rune) {
 	// last byte of seq tells us what function we're doing
 	if len(seq) == 0 {
 		return
@@ -137,9 +205,6 @@ func (d *Device) HandleEscSequence(seq []byte) {
 		}
 	case 'm': // CoLoRs!1!! AKA SGR (Select Graphic Rendition)
 		args := getNumericArgs(seq[:len(seq)-1], 0)
-
-		// TODO: process args in a loop since you can chain them together
-
 		for i := 0; i < len(args); i++ {
 			switch args[i] {
 			case 0:
@@ -236,17 +301,29 @@ func (d *Device) HandleEscSequence(seq []byte) {
 			case 107:
 				d.attr.Bg = ColorBrightWhite
 
-			// 24bit True Color support
+			// 24bit True Color and 256-Color support support
 			case 38, 48:
-				if i+1 >= len(args) || args[i+1] != 2 {
+				if i+1 >= len(args) {
+					continue
+				}
+				if args[i+1] == 5 {
+					if args[i] == 38 {
+						d.attr.Fg = Colors256[args[i+2]]
+					} else {
+						d.attr.Bg = Colors256[args[i+2]]
+					}
+					i += 2
+					continue
+				}
+				if args[i+1] != 2 {
 					continue
 				}
 				i += 2
 				// can proceed
 				var r, g, b uint8
 				r, g, b = getRGB(args[i:])
-				i += 3
-				if args[i-5] == 38 {
+				i += 2
+				if args[i-4] == 38 {
 					d.attr.Fg = NewOpaqueColor(r, g, b)
 				} else {
 					d.attr.Bg = NewOpaqueColor(r, g, b)
@@ -255,6 +332,12 @@ func (d *Device) HandleEscSequence(seq []byte) {
 			} // switch for SGR
 
 		}
+	case 'n': // DSR - Device Status Report
+		// args -
+		// '5' just returns OK
+		// '6' return cursor location
+		// Just assume we were passed 6
+		fmt.Fprintf(d.Output, "\x1b[%d;%dR", d.cursorPos/d.cols+1, d.cursorPos%d.cols+1)
 	case 'l', 'h': // on/off extensions
 		if seq[0] != '?' || len(seq) < 2 {
 			return

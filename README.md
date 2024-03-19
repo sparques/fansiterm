@@ -30,6 +30,7 @@ If Device is initialized with a nil image buffer, it allocates its own buffer. O
  - Underline, Double Underline, Strikethrough
  - Custom Tile loading for alternate character set (shift-out character set, commonly used for line-drawing/pseudo graphics)
  - Font is rendered using an 8-bit Alpha mask, allowing for clean blending and anti-aliased rendering of glyphs.
+ - 4-bit (with extended codes for bright / high intensity) color; 256-Color; True Color (24 bit).
  	
 
 # Non-Features
@@ -41,12 +42,11 @@ The main purpose of this package is for use on rather low-power microcontrollers
   - Resizable Text
     - Right now, the pre-rendered inconsolata.Regular8x16 and inconsolata.Bold8x16 are used.
     - It's possible to use basicfont.Regular7x13, but you have to give up bold support.
-  - Color Pallet / 256-color
-    - The standard 4-bit color palette is supported and 24-bit True Color is supported; 256 seems redundant to me.
   - Hardware acceleration. Fansiterm remains aganostic of what it's rendering to and thus can't take advantage of any double-buffers or hardware-cursors _on its own_. Backwards compatible PRs to improve hardware support / hardware acceleration are very much welcome.
 
 # TODO
 
+ - General Clean Up (Device struct is a bit of a mess)
  - Package documentation
  - Test on real hardware
  - 1-bit color/rendering support for very-very-constrained systems

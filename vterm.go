@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"image"
 	"image/draw"
+	"io"
 	"slices"
 	"time"
 
@@ -12,7 +13,7 @@ import (
 )
 
 /*
-vterm implements a virtual terminal. It supports being io.Read() from and io.Write()n to. It handles the cursor and processing of
+vterm implements a virtual terminal. It supports being io.Write()n to. It handles the cursor and processing of
 escape sequences.
 */
 
@@ -51,6 +52,19 @@ type Device struct {
 	altCharSet TileSet
 
 	cell image.Rectangle
+
+	// input stuff
+	inputBuf []rune
+
+	// Miscellaneous properties, like "Window Title"
+	Properties map[Property]string
+
+	// Output specifies the program attached to the terminal. This should be the
+	// same interface that the input mechanism (whatever that may be) uses to write
+	// to the program. On POSIX systems, this would be equivalent to Stdin.
+	// Default is io.Discard. Setting to nil will cause Escape Sequences that
+	// write a response to panic.
+	Output io.Writer
 }
 
 const (
@@ -73,11 +87,8 @@ type Attr struct {
 	Blink           bool
 	Reversed        bool
 	Italic          bool
-	// consider using an image.Uniform instead of a color.Color; the color is still accessible
-	// as a sub-field of image.Uniform, but also you don't ever have to instantiate an image.Uniform
-	// when you need to draw something
-	Fg Color
-	Bg Color
+	Fg              Color
+	Bg              Color
 }
 
 var AttrDefault = Attr{
@@ -127,6 +138,8 @@ func New(cols, rows int, buf draw.Image) *Device {
 		attrDefault: AttrDefault,
 		Config:      ConfigDefault,
 		altCharSet:  NewTileSet(),
+		Output:      io.Discard,
+		Properties:  make(map[Property]string),
 	}
 }
 
@@ -186,15 +199,25 @@ func isControl(r rune) bool {
 	return r < 0x20
 }
 
-func (d *Device) Write(data []byte) (n int, err error) {
-	// TODO: batch together runs of bytes that don't have escape
-	// characters in them
+func isFinal(r rune) bool {
+	return r >= 0x40
+}
 
+// Write implements io.Write and is the main way to interract with with (*fansiterm).Device. This is
+// essentially writing to the "terminal."
+// Writes are more or less unbuffered with the exception of escape sequences. If a partial escape sequence
+// is written to Device, the beginning will be bufferred and prepended to the next write.
+func (d *Device) Write(data []byte) (n int, err error) {
 	runes := bytes.Runes(data)
 
 	// first un-invert cursor (if we're showing it)
 	if d.cursorVisible {
 		d.toggleCursor()
+	}
+
+	if len(d.inputBuf) != 0 {
+		runes = append(d.inputBuf, runes...)
+		d.inputBuf = []rune{}
 	}
 
 	var endIdx int
@@ -204,7 +227,13 @@ func (d *Device) Write(data []byte) (n int, err error) {
 			if d.BellFunc != nil {
 				d.BellFunc()
 			}
-		// case '\b': // do I need to handle backspace here?!
+		case '\b': // backspace
+			// whatever is connected to the terminal needs to handle line/character editing
+			// however, when the terminal gets a backspace, that's the same as just moving cursor
+			// one space to the left. To perform a what looks like an actual backspace you must
+			// send "\b \b".
+			// The below will allow backspace to move to the previous line, is that okay?
+			d.cursorPos = max(d.cursorPos-1, 0)
 		case '\t': // tab
 			d.cursorPos += d.Config.TabSize - (d.cursorPos%d.cols)%d.Config.TabSize
 		case '\r': // carriage return
@@ -217,27 +246,19 @@ func (d *Device) Write(data []byte) (n int, err error) {
 		case 0x0F: // shift in (use regular char set)
 			d.useAltCharSet = false
 		case 0x1b: // ESC aka ^[
-			// at least one more byte available?
-			if i >= len(runes) {
-				break
+			n, err = consumeEscSequence(runes[i:])
+			if err != nil {
+				// copy runes[i:] to d.inputBuf and wait for more input
+				d.inputBuf = append(d.inputBuf, runes[i:]...)
+				i += len(runes[i:])
+				continue
 			}
-			i++
-			if runes[i] == '[' {
-				i++
-				start := i
-				for i < len(runes) && runes[i] < 0x40 {
-					i++
-				}
-				// TODO: Is there a better way to pass this?
-				// If I switch HandleEscSequence() to use []rune instead of []byte
-				// I can avoid the conversion, but does that actually make things better?
-				d.HandleEscSequence([]byte(string(runes[start : i+1])))
-			}
+			d.HandleEscSequence(runes[i : i+n])
+			i += n - 1
 		default:
 			// consume as many non-control characters as possible
 			// render these with RenderRunes
 			// increment d.cursorPos; increment i
-			// write characters to buf
 
 			// Originally I did this with strings.IndexFunc(string(runes[i:]), isControl)
 			// however this seems to return the byte offset rather than the rune offset
