@@ -106,10 +106,11 @@ func (d *Device) cursorPt() image.Point {
 
 func (d *Device) toggleCursor() {
 	d.cursor.visible = !d.cursor.visible
+	rect := d.Render.cursorFunc(d.Render.cell, d.cursor.col, d.cursor.row)
 	draw.Draw(d.Render,
-		d.Render.cursorFunc(d.Render.cell, d.cursor.col, d.cursor.row),
+		rect,
 		invertColors{d.Render},
-		d.cursorPt(),
+		rect.Min,
 		draw.Src)
 }
 

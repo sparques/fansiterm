@@ -322,17 +322,18 @@ func (d *Device) Write(data []byte) (n int, err error) {
 func (d *Device) Scroll(amount int) {
 	if amount > 0 {
 		//shift the lower portion of the image up
-		draw.Draw(d.Render,
+		draw.Draw(d.Render.Image, // bug in go library here, I think; processBackward of draw/draw.go chokes on comparing d.Render
 			image.Rect(0, 0, d.cols*d.Render.cell.Max.X, (d.rows-amount)*d.Render.cell.Max.Y),
 			d.Render,
 			image.Pt(0, amount*d.Render.cell.Max.Y),
 			draw.Src)
 		// fill in the lower portion with Bg
-		draw.Draw(d.Render,
-			image.Rect(0, (d.rows-amount)*d.Render.cell.Max.Y, d.cols*d.Render.cell.Max.X, d.rows*d.Render.cell.Max.Y),
-			&image.Uniform{d.attr.Bg},
-			image.Pt(0, amount*d.Render.cell.Max.Y),
-			draw.Src)
+		d.Clear(0, d.rows-amount, d.cols, d.rows)
+		// draw.Draw(d.Render,
+		// 	image.Rect(0, (d.rows-amount)*d.Render.cell.Max.Y, d.cols*d.Render.cell.Max.X, d.rows*d.Render.cell.Max.Y),
+		// 	&image.Uniform{d.attr.Bg},
+		// 	image.Pt(0, amount*d.Render.cell.Max.Y),
+		// 	draw.Src)
 		return
 	}
 	amount = -amount
@@ -369,7 +370,7 @@ func (d *Device) ScrollToCursor() {
 		d.cursor.row++
 	}
 	// this is the more common scenario
-	if d.cursor.row > d.rows {
+	if d.cursor.row >= d.rows {
 		d.cursor.col = 0
 		d.cursor.row = d.rows - 1
 		d.Scroll(1)
