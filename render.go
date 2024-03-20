@@ -10,6 +10,10 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
+// cursorRectFunc specifies a function for generating a rectanglular region to invert,
+// for the purposes of rendering a cursor.
+type cursorRectFunc func(image.Rectangle, int, int) image.Rectangle
+
 // RenderRunes does not do *any* interpretation of escape codes or control characters like \r or \n.
 // It simply renders a slice of runes (as a string) at the cursor position. It is up to the caller
 // of RenderRunes to ensure there's enough space for the runes on the buffer and to process any
@@ -18,19 +22,19 @@ func (d *Device) RenderRunes(sym []rune) {
 	// TODO: replace r and c
 	r, c := d.cursor.row, d.cursor.col
 	if !d.attr.Reversed {
-		d.fontDraw.Src = d.attr.Fg
+		d.Render.fontDraw.Src = d.attr.Fg
 	} else {
-		d.fontDraw.Src = d.attr.Bg
+		d.Render.fontDraw.Src = d.attr.Bg
 	}
 
 	// Which Face are we using? Note that useAltCharSet overrides Bold and Italics
 	switch {
-	case d.useAltCharSet:
-		d.fontDraw.Face = d.altCharSet
+	case d.Render.useAltCharSet:
+		d.Render.fontDraw.Face = d.Render.altCharSet
 	case d.attr.Bold:
-		d.fontDraw.Face = inconsolata.Bold8x16
+		d.Render.fontDraw.Face = inconsolata.Bold8x16
 	default:
-		d.fontDraw.Face = inconsolata.Regular8x16
+		d.Render.fontDraw.Face = inconsolata.Regular8x16
 	}
 
 	// draw background
@@ -39,68 +43,74 @@ func (d *Device) RenderRunes(sym []rune) {
 	// draw character
 	// Ascent is pixels above baseline and descent is pixels below baseline. We want the bottom of the glyph aligned with bottom
 	// of the cell
-	d.fontDraw.Dot = fixed.P(d.cell.Max.X*c, d.cell.Max.Y*(r+1)-d.fontDraw.Face.Metrics().Descent.Round())
-	d.fontDraw.DrawString(string(sym))
+	d.Render.fontDraw.Dot = fixed.P(d.Render.cell.Max.X*c, d.Render.cell.Max.Y*(r+1)-d.Render.fontDraw.Face.Metrics().Descent.Round())
+	d.Render.fontDraw.DrawString(string(sym))
 
 	// TODO: clean this mess up up; really could use better drawing routines
 	// Need to do a performance comparison; would it be better to have "glyphs" that are lines and render those overtop
 	// characters? The code would certainly be cleaner and simpler that way.
 	if d.attr.Strike {
 		// draw a single pixel high line through the center of the whole cell
-		draw.Draw(d.buf,
-			image.Rect(0, d.cell.Max.Y/2, d.cell.Max.X*len(sym), d.cell.Max.Y/2+1).Add(image.Pt(d.cell.Max.X*c, d.cell.Max.Y*(r))),
-			d.fontDraw.Src,
+		draw.Draw(d.Render,
+			image.Rect(
+				0,
+				d.Render.cell.Max.Y/2,
+				d.Render.cell.Max.X*len(sym),
+				d.Render.cell.Max.Y/2+1).Add(image.Pt(d.Render.cell.Max.X*c, d.Render.cell.Max.Y*(r))),
+			d.Render.fontDraw.Src,
 			image.Point{},
 			draw.Src)
 	}
 
-	if d.attr.Underline {
+	if d.attr.Underline || d.attr.DoubleUnderline {
 		// draw a single pixel high line through the the whole cell, 3px above the bottom of the cell
-		draw.Draw(d.buf,
-			image.Rect(0, d.cell.Max.Y-1, d.cell.Max.X*len(sym), d.cell.Max.Y).Add(image.Pt(d.cell.Max.X*c, d.cell.Max.Y*(r))),
-			d.fontDraw.Src,
+		draw.Draw(d.Render,
+			image.Rect(
+				0,
+				d.Render.cell.Max.Y-1,
+				d.Render.cell.Max.X*len(sym),
+				d.Render.cell.Max.Y).Add(image.Pt(d.Render.cell.Max.X*c, d.Render.cell.Max.Y*(r))),
+			d.Render.fontDraw.Src,
 			image.Point{},
 			draw.Src)
+		// draw second line for double underline
+		if d.attr.DoubleUnderline {
+			draw.Draw(d.Render,
+				image.Rect(
+					0,
+					d.Render.cell.Max.Y-3,
+					d.Render.cell.Max.X*len(sym),
+					d.Render.cell.Max.Y-2).Add(image.Pt(d.Render.cell.Max.X*c, d.Render.cell.Max.Y*(r))),
+				d.Render.fontDraw.Src,
+				image.Point{},
+				draw.Src)
+		}
 	}
+}
 
-	if d.attr.DoubleUnderline {
-		draw.Draw(d.buf,
-			image.Rect(0, d.cell.Max.Y-3, d.cell.Max.X*len(sym), d.cell.Max.Y-2).Add(image.Pt(d.cell.Max.X*c, d.cell.Max.Y*(r))),
-			d.fontDraw.Src,
-			image.Point{},
-			draw.Src)
-		draw.Draw(d.buf,
-			image.Rect(0, d.cell.Max.Y-1, d.cell.Max.X*len(sym), d.cell.Max.Y).Add(image.Pt(d.cell.Max.X*c, d.cell.Max.Y*(r))),
-			d.fontDraw.Src,
-			image.Point{},
-			draw.Src)
-	}
+func blockRect(cell image.Rectangle, c, r int) image.Rectangle {
+	return cell.Add(image.Pt(cell.Max.X*c, cell.Max.Y*r))
+}
 
+func beamRect(cell image.Rectangle, c, r int) image.Rectangle {
+	return image.Rect(0, 0, 1, cell.Max.Y).Add(image.Pt(cell.Max.X*c, cell.Max.Y*r))
+}
+
+func underscoreRect(cell image.Rectangle, c, r int) image.Rectangle {
+	return image.Rect(0, cell.Max.Y-1, cell.Max.X, cell.Max.Y).Add(image.Pt(cell.Max.X*c, cell.Max.Y*r))
+}
+
+func (d *Device) cursorPt() image.Point {
+	return image.Pt(d.Render.cell.Max.X*d.cursor.col, d.Render.cell.Max.Y*d.cursor.row)
 }
 
 func (d *Device) toggleCursor() {
 	d.cursor.visible = !d.cursor.visible
-	r, c := d.cursor.row, d.cursor.col
-	switch d.Config.CursorStyle {
-	case CursorBlock:
-		draw.Draw(d.buf,
-			d.cell.Add(image.Pt(d.cell.Max.X*c, d.cell.Max.Y*r)),
-			invertColors{d.buf},
-			image.Pt(d.cell.Max.X*c, d.cell.Max.Y*r),
-			draw.Src)
-	case CursorBeam:
-		draw.Draw(d.buf,
-			image.Rect(0, 0, 1, d.cell.Max.Y).Add(image.Pt(d.cell.Max.X*c, d.cell.Max.Y*r)),
-			invertColors{d.buf},
-			image.Pt(d.cell.Max.X*c, d.cell.Max.Y*r),
-			draw.Src)
-	case CursorUnderscore:
-		draw.Draw(d.buf,
-			image.Rect(0, d.cell.Max.Y-1, d.cell.Max.X, d.cell.Max.Y).Add(image.Pt(d.cell.Max.X*c, d.cell.Max.Y*r)),
-			invertColors{d.buf},
-			image.Pt(d.cell.Max.X*c, d.cell.Max.Y*r+d.cell.Max.Y-1),
-			draw.Src)
-	}
+	draw.Draw(d.Render,
+		d.Render.cursorFunc(d.Render.cell, d.cursor.col, d.cursor.row),
+		invertColors{d.Render},
+		d.cursorPt(),
+		draw.Src)
 }
 
 func (d *Device) hideCursor() {
@@ -110,27 +120,7 @@ func (d *Device) hideCursor() {
 }
 
 func (d *Device) Image() image.Image {
-	return d.buf
-}
-
-// We could just compose draw.Image into Device...
-// Why aren't we? (Because I'll have to update every reference to d.buf 😂😭)
-
-// Set lets Device directly implement draw.Image
-func (d *Device) Set(x, y int, c color.Color) {
-	d.buf.Set(x, y, c)
-}
-
-func (d *Device) At(x, y int) color.Color {
-	return d.buf.At(x, y)
-}
-
-func (d *Device) ColorModel() color.Model {
-	return d.buf.ColorModel()
-}
-
-func (d *Device) Bounds() image.Rectangle {
-	return d.buf.Bounds()
+	return d.Render // d.Render or d.Render.Image?
 }
 
 // Clear writes a block of current background color in a rectangular shape,
@@ -139,14 +129,14 @@ func (d *Device) Bounds() image.Rectangle {
 // clear the whole screen.
 func (d *Device) Clear(x1, y1, x2, y2 int) {
 	if d.attr.Reversed {
-		draw.Draw(d.buf,
-			image.Rect(x1*d.cell.Dx(), y1*d.cell.Dy(), x2*d.cell.Dx(), y2*d.cell.Dy()),
+		draw.Draw(d.Render,
+			image.Rect(x1*d.Render.cell.Dx(), y1*d.Render.cell.Dy(), x2*d.Render.cell.Dx(), y2*d.Render.cell.Dy()),
 			d.attr.Fg,
 			image.Point{},
 			draw.Src)
 	} else {
-		draw.Draw(d.buf,
-			image.Rect(x1*d.cell.Dx(), y1*d.cell.Dy(), x2*d.cell.Dx(), y2*d.cell.Dy()),
+		draw.Draw(d.Render,
+			image.Rect(x1*d.Render.cell.Dx(), y1*d.Render.cell.Dy(), x2*d.Render.cell.Dx(), y2*d.Render.cell.Dy()),
 			d.attr.Bg,
 			image.Point{},
 			draw.Src)

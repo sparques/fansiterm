@@ -25,10 +25,14 @@ type Device struct {
 	// Affirmative: C-G (quarter notes?)
 	// NAK: C♭ (whole note?)
 	BellFunc func()
-	Config   Config
 
+	// Config species the runtime configurable features of fansiterm.
+	Config Config
+
+	// cols and rows specify the size in characters of the terminal.
 	cols, rows int
 
+	// cursor  collects together all the fields for handling the cursor.
 	cursor Cursor
 
 	// attr tracks the currently applied attributes
@@ -37,19 +41,11 @@ type Device struct {
 	// attrDefault is used when attr is zero-value or nil
 	attrDefault Attr
 
-	buf    draw.Image
-	offset image.Point
+	// Render collects together all the graphical rendering fields.
+	Render Render
 
-	fontDraw    font.Drawer
-	fontDescent int
-	// add Regular, Bold, Italic font.Face entries?
-	useAltCharSet bool
-
-	altCharSet TileSet
-
-	cell image.Rectangle
-
-	// input stuff
+	// inputBuf buffers chracters between call writes. This is exclusively used to
+	// buffer incomplete escape sequences.
 	inputBuf []rune
 
 	// Miscellaneous properties, like "Window Title"
@@ -77,6 +73,19 @@ type Cursor struct {
 
 	// prevPos is for saving cursor position; The indicies are col, row.
 	prevPos [2]int
+}
+
+type Render struct {
+	draw.Image
+	offset        image.Point
+	fontDraw      font.Drawer
+	altCharSet    TileSet
+	useAltCharSet bool
+	cell          image.Rectangle
+	cursorFunc    cursorRectFunc
+	// Some displays require a flush / blit / sync call
+	// this could be called at the end of (*Device).Write().
+	// displayFunc func()
 }
 
 const (
@@ -109,9 +118,7 @@ var AttrDefault = Attr{
 }
 
 var ConfigDefault = Config{
-	TabSize:     8,
-	CursorStyle: CursorBlock,
-	CursorBlink: true,
+	TabSize: 8,
 }
 
 // New returns an initialized *Device. If buf is nil, an internal buffer is used. Otherwise
@@ -139,19 +146,21 @@ func New(cols, rows int, buf draw.Image) *Device {
 		cols: cols,
 		rows: rows,
 		attr: AttrDefault,
-		buf:  buf,
-		cell: cell,
+		Render: Render{
+			Image:      buf,
+			altCharSet: NewTileSet(),
+			cell:       cell,
+			fontDraw: font.Drawer{
+				Dst:  buf,
+				Face: fontFace,
+			},
+			cursorFunc: blockRect,
+		},
 		cursor: Cursor{
 			show: true,
 		},
-		fontDraw: font.Drawer{
-			Dst:  buf,
-			Face: fontFace,
-		},
-		fontDescent: fontFace.Descent,
 		attrDefault: AttrDefault,
 		Config:      ConfigDefault,
-		altCharSet:  NewTileSet(),
 		Output:      io.Discard,
 		Properties:  make(map[Property]string),
 	}
@@ -166,9 +175,9 @@ func NewAtResolution(x, y int, buf draw.Image) *Device {
 	d := New(1, 1, nil)
 	// use d.cell to figure out rows and cols; integer division will round down
 	// which is what we want
-	cols := x / d.cell.Max.X
-	rows := y / d.cell.Max.Y
-	offset := image.Pt((x%d.cell.Max.X)/2, (y%d.cell.Max.Y)/2)
+	cols := x / d.Render.cell.Max.X
+	rows := y / d.Render.cell.Max.Y
+	offset := image.Pt((x%d.Render.cell.Max.X)/2, (y%d.Render.cell.Max.Y)/2)
 
 	//fmt.Println("Res:", x, "x", y, "Cols:", cols, "Rows:", rows, "Offset:", offset)
 
@@ -189,9 +198,9 @@ func NewAtResolution(x, y int, buf draw.Image) *Device {
 
 // VisualBell inverts the screen for a quarter second.
 func (d *Device) VisualBell() {
-	draw.Draw(d.buf, d.buf.Bounds(), invertColors{d.buf}, image.Point{}, draw.Src)
+	draw.Draw(d.Render, d.Render.Bounds(), invertColors{d.Render}, image.Point{}, draw.Src)
 	time.Sleep(time.Second / 4)
-	draw.Draw(d.buf, d.buf.Bounds(), invertColors{d.buf}, image.Point{}, draw.Src)
+	draw.Draw(d.Render, d.Render.Bounds(), invertColors{d.Render}, image.Point{}, draw.Src)
 }
 
 // WriteAt works like calling the save cursor position escape sequence, then
@@ -263,9 +272,9 @@ func (d *Device) Write(data []byte) (n int, err error) {
 			d.cursor.col = 0
 			d.ScrollToCursor()
 		case 0x0E: // shift out (use alt character set)
-			d.useAltCharSet = true
+			d.Render.useAltCharSet = true
 		case 0x0F: // shift in (use regular char set)
-			d.useAltCharSet = false
+			d.Render.useAltCharSet = false
 		case 0x1b: // ESC aka ^[
 			n, err = consumeEscSequence(runes[i:])
 			if err != nil {
@@ -313,26 +322,26 @@ func (d *Device) Write(data []byte) (n int, err error) {
 func (d *Device) Scroll(amount int) {
 	if amount > 0 {
 		//shift the lower portion of the image up
-		draw.Draw(d.buf,
-			image.Rect(0, 0, d.cols*d.cell.Max.X, (d.rows-amount)*d.cell.Max.Y),
-			d.buf,
-			image.Pt(0, amount*d.cell.Max.Y),
+		draw.Draw(d.Render,
+			image.Rect(0, 0, d.cols*d.Render.cell.Max.X, (d.rows-amount)*d.Render.cell.Max.Y),
+			d.Render,
+			image.Pt(0, amount*d.Render.cell.Max.Y),
 			draw.Src)
 		// fill in the lower portion with Bg
-		draw.Draw(d.buf,
-			image.Rect(0, (d.rows-amount)*d.cell.Max.Y, d.cols*d.cell.Max.X, d.rows*d.cell.Max.Y),
+		draw.Draw(d.Render,
+			image.Rect(0, (d.rows-amount)*d.Render.cell.Max.Y, d.cols*d.Render.cell.Max.X, d.rows*d.Render.cell.Max.Y),
 			&image.Uniform{d.attr.Bg},
-			image.Pt(0, amount*d.cell.Max.Y),
+			image.Pt(0, amount*d.Render.cell.Max.Y),
 			draw.Src)
 		return
 	}
 	amount = -amount
 
 	//shift the upper portion of the image down
-	draw.Draw(d.buf,
-		image.Rect(0, amount*d.cell.Max.Y, d.cols*d.cell.Max.X, d.rows*d.cell.Max.Y),
-		d.buf,
-		image.Pt(0, (d.rows-amount)*d.cell.Max.Y),
+	draw.Draw(d.Render,
+		image.Rect(0, amount*d.Render.cell.Max.Y, d.cols*d.Render.cell.Max.X, d.rows*d.Render.cell.Max.Y),
+		d.Render,
+		image.Pt(0, (d.rows-amount)*d.Render.cell.Max.Y),
 		draw.Src)
 	// fill in scrolls section with background
 	d.Clear(0, 0, d.cols, amount)
