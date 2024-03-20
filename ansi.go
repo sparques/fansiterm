@@ -85,8 +85,9 @@ func bound(x, minimum, maximum int) int {
 }
 
 // HandleEscSequence handles escape sequences. This should be the whole complete
+// sequence. Bounds are not checked so an incomplete sequence will cause
+// a panic.
 func (d *Device) HandleEscSequence(seq []rune) {
-	fmt.Println("ESC Seq:", seq)
 	switch seq[1] {
 	case '[':
 		d.HandleCSISequence(seq[2:])

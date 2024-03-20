@@ -27,7 +27,15 @@ type Device struct {
 	BellFunc func()
 	Config   Config
 
-	cols, rows    int
+	cols, rows int
+
+	cursor Cursor
+
+	// for "simplicity" I use cursorPos and always calculate row/col from it;
+	// upon reflection, this means I'm doing lots of division; if I were to use
+	// row and col, to get back to a single dimensional cursor value, that would be
+	// lots of multiplication. My target processor (RP2040) doesn't even have
+	// a divide instruction, so my divides are being converted into SUBtraction loops.
 	cursorPos     int
 	cursorPosPrev int
 	// showCursor is whether or not we're supposed to be showing the cursor
@@ -65,6 +73,16 @@ type Device struct {
 	// Default is io.Discard. Setting to nil will cause Escape Sequences that
 	// write a response to panic.
 	Output io.Writer
+}
+
+type Cursor struct {
+	Row     int
+	Col     int
+	Show    bool
+	Visible bool
+
+	// For saving cursor position
+	PrevPos [2]int
 }
 
 const (
@@ -130,6 +148,9 @@ func New(cols, rows int, buf draw.Image) *Device {
 		buf:        buf,
 		cell:       cell,
 		showCursor: true,
+		cursor: Cursor{
+			Show: true,
+		},
 		fontDraw: font.Drawer{
 			Dst:  buf,
 			Face: fontFace,
@@ -249,7 +270,7 @@ func (d *Device) Write(data []byte) (n int, err error) {
 			n, err = consumeEscSequence(runes[i:])
 			if err != nil {
 				// copy runes[i:] to d.inputBuf and wait for more input
-				d.inputBuf = append(d.inputBuf, runes[i:]...)
+				d.inputBuf = runes[i:]
 				i += len(runes[i:])
 				continue
 			}

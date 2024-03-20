@@ -72,3 +72,4 @@ The screenshot demonstrates:
   - The distance between 'Freq:' and '443 MHz' and 'Bandwidth:' and '005 KHz' are managed via tab characters.
   - The gradient bar is implemented using 24-bit True Color.
   - Finally, the cursor is a block style cursor. All cursor shapes are implemented by inverting the colors they land over top.
+  - This is a 240x135 pixel. While 240 is evenly divisible by 8, 135 is not divisible by 16. The terminal is automatically centered. (It is a TODO item to add customizable offset).
