@@ -15,7 +15,8 @@ import (
 // of RenderRunes to ensure there's enough space for the runes on the buffer and to process any
 // control sequences.
 func (d *Device) RenderRunes(sym []rune) {
-	r, c := d.offsetToRowCol(d.cursorPos)
+	// TODO: replace r and c
+	r, c := d.cursor.row, d.cursor.col
 	if !d.attr.Reversed {
 		d.fontDraw.Src = d.attr.Fg
 	} else {
@@ -78,8 +79,8 @@ func (d *Device) RenderRunes(sym []rune) {
 }
 
 func (d *Device) toggleCursor() {
-	d.cursorVisible = !d.cursorVisible
-	r, c := d.offsetToRowCol(d.cursorPos)
+	d.cursor.visible = !d.cursor.visible
+	r, c := d.cursor.row, d.cursor.col
 	switch d.Config.CursorStyle {
 	case CursorBlock:
 		draw.Draw(d.buf,
@@ -103,7 +104,7 @@ func (d *Device) toggleCursor() {
 }
 
 func (d *Device) hideCursor() {
-	if d.cursorVisible {
+	if d.cursor.visible {
 		d.toggleCursor()
 	}
 }

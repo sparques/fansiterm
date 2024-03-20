@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"golang.org/x/exp/constraints"
 )
 
 // These Colors are for the 4-bit ANSI colors
@@ -80,7 +82,7 @@ func getNumericArgs(seq []rune, def int) (args []int) {
 	return args
 }
 
-func bound(x, minimum, maximum int) int {
+func bound[N constraints.Integer](x, minimum, maximum N) N {
 	return min(max(x, minimum), maximum)
 }
 
@@ -150,7 +152,7 @@ func (d *Device) HandleCSISequence(seq []rune) {
 		}
 	case 'G': // Moves the cursor to column n (default 1).
 		if len(args) == 1 {
-			d.MoveCursorAbs(args[0], d.CursorRow())
+			d.MoveCursorAbs(args[0], d.cursor.row)
 		}
 	case 'H': // Cursor position, Moves the cursor to row n, column m. The values are 1-based, and default to 1 (top left corner) if omitted. A sequence such as CSI ;5H is a synonym for CSI 1;5H as well as CSI 17;H is the same as CSI 17H and CSI 17;1H
 		var n, m int = 1, 1
@@ -165,18 +167,17 @@ func (d *Device) HandleCSISequence(seq []rune) {
 		d.MoveCursorAbs(m-1, n-1)
 	case 'J': // Clears part of the screen. If n is 0 (or missing), clear from cursor to end of screen. If n is 1, clear from cursor to beginning of the screen. If n is 2, clear entire screen (and moves cursor to upper left on DOS ANSI.SYS). If n is 3, clear entire screen and delete all lines saved in the scrollback buffer (this feature was added for xterm and is supported by other terminal applications).
 		args = getNumericArgs(seq[:len(seq)-1], 0)
-		r, c := d.offsetToRowCol(d.cursorPos)
 		switch args[0] {
 		case 0:
 			// clear from cursor to EOL
-			d.Clear(c+1, r, d.cols, r+1)
+			d.Clear(d.cursor.col+1, d.cursor.row, d.cols, d.cursor.row+1)
 			// clear area below cursor
-			d.Clear(0, r+1, d.cols, d.rows)
+			d.Clear(0, d.cursor.row+1, d.cols, d.rows)
 		case 1:
 			// clear from cursor to beginning of line
-			d.Clear(0, r, c, r+1)
+			d.Clear(0, d.cursor.row, d.cursor.col, d.cursor.row+1)
 			// clear area above cursor
-			d.Clear(0, 0, d.cols, r)
+			d.Clear(0, 0, d.cols, d.cursor.row)
 		case 2:
 			// clear whole screen
 			d.Clear(0, 0, d.cols, d.rows)
@@ -184,17 +185,16 @@ func (d *Device) HandleCSISequence(seq []rune) {
 
 	case 'K': // Erases part of the line. If n is 0 (or missing), clear from cursor to the end of the line. If n is 1, clear from cursor to beginning of the line. If n is 2, clear entire line. Cursor position does not change.
 		args = getNumericArgs(seq[:len(seq)-1], 0)
-		r, c := d.offsetToRowCol(d.cursorPos)
 		switch args[0] {
 		case 0:
 			// clear from cursor to EOL
-			d.Clear(c, r, d.cols, r+1)
+			d.Clear(d.cursor.col, d.cursor.row, d.cols, d.cursor.row+1)
 		case 1:
 			// clear from cursor to beginning of line
-			d.Clear(0, r, c, r+1)
+			d.Clear(0, d.cursor.row, d.cursor.col, d.cursor.row+1)
 		case 2:
 			// clear whole line
-			d.Clear(0, r, d.cols, r+1)
+			d.Clear(0, d.cursor.row, d.cols, d.cursor.row+1)
 		}
 	case 'S': // Scroll whole page up by n (default 1) lines. New lines are added at the bottom.
 		if len(args) == 1 {
@@ -338,7 +338,7 @@ func (d *Device) HandleCSISequence(seq []rune) {
 		// '5' just returns OK
 		// '6' return cursor location
 		// Just assume we were passed 6
-		fmt.Fprintf(d.Output, "\x1b[%d;%dR", d.cursorPos/d.cols+1, d.cursorPos%d.cols+1)
+		fmt.Fprintf(d.Output, "\x1b[%d;%dR", d.cursor.row+1, d.cursor.col+1)
 	case 'l', 'h': // on/off extensions
 		if seq[0] != '?' || len(seq) < 2 {
 			return
@@ -347,18 +347,20 @@ func (d *Device) HandleCSISequence(seq []rune) {
 		switch args[0] {
 		case 25: // show/hide cursor
 			if seq[len(seq)-1] == 'l' {
-				d.showCursor = false
-				if d.cursorVisible {
+				d.cursor.show = false
+				if d.cursor.visible {
 					d.toggleCursor()
 				}
 			} else {
-				d.showCursor = true
+				d.cursor.show = true
 			}
 		}
 	case 's': // save cursor position
-		d.cursorPosPrev = d.cursorPos
+		d.cursor.prevPos[0] = d.cursor.col
+		d.cursor.prevPos[1] = d.cursor.row
 	case 'u': // restore cursor position
-		d.cursorPos = d.cursorPosPrev
+		d.cursor.row = d.cursor.prevPos[0]
+		d.cursor.col = d.cursor.prevPos[1]
 	} // switch seq[len(seq)-1]
 }
 

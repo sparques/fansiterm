@@ -19,6 +19,8 @@ func Test_RenderScreenshot(t *testing.T) {
 		term.altCharSet.LoadTileFromFile(runes[0], file)
 	}
 
+	//fmt.Printf(" \x1b[34m\x0e(\x0f\x1b[44;97;1mFANSITERM™\x0e\x1b[34;41;22m)\x0f \x1b[37mTX v1.0\x1b[40;31m\x0e>\x0f\x1b[m\n\n  Freq:\t\t\x0e{\x1b[7m433\x0f MHz\x0e\x1b[27m}\x0f\n\n  Bandwidth:\t\x0e{\x1b[7m005\x0f KHz\x0e\x1b[27m}\x0f\n\n")
+
 	term.Write([]byte(" \x1b[34m\x0e(\x0f\x1b[44;97;1mFANSITERM™\x0e\x1b[34;41;22m)\x0f \x1b[37mTX v1.0\x1b[40;31m\x0e>\x0f\x1b[m\n\n"))
 	term.Write([]byte("  Freq:\t\t\x0e{\x1b[7m433\x0f MHz\x0e\x1b[27m}\x0f\n\n"))
 	term.Write([]byte("  Bandwidth:\t\x0e{\x1b[7m005\x0f KHz\x0e\x1b[27m}\x0f\n\n"))

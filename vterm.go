@@ -31,18 +31,6 @@ type Device struct {
 
 	cursor Cursor
 
-	// for "simplicity" I use cursorPos and always calculate row/col from it;
-	// upon reflection, this means I'm doing lots of division; if I were to use
-	// row and col, to get back to a single dimensional cursor value, that would be
-	// lots of multiplication. My target processor (RP2040) doesn't even have
-	// a divide instruction, so my divides are being converted into SUBtraction loops.
-	cursorPos     int
-	cursorPosPrev int
-	// showCursor is whether or not we're supposed to be showing the cursor
-	showCursor bool
-	// curosrVisible is whether the curosr is currently displayed
-	cursorVisible bool
-
 	// attr tracks the currently applied attributes
 	attr Attr
 
@@ -75,14 +63,20 @@ type Device struct {
 	Output io.Writer
 }
 
+// Cursor is used to track the cursor.
 type Cursor struct {
-	Row     int
-	Col     int
-	Show    bool
-	Visible bool
+	// col is the current column. This is zero indexed.
+	col int
+	// row is the current row. This is zero indexed.
+	row int
+	// show is whether we should be showing the the cursor.
+	show bool
+	// visible is whether or not the cursor is currently visible. When rendering text,
+	// we hide the cursor, then re-enable it when done.
+	visible bool
 
-	// For saving cursor position
-	PrevPos [2]int
+	// prevPos is for saving cursor position; The indicies are col, row.
+	prevPos [2]int
 }
 
 const (
@@ -142,14 +136,13 @@ func New(cols, rows int, buf draw.Image) *Device {
 	draw.Draw(buf, buf.Bounds(), image.Black, image.Point{}, draw.Src)
 
 	return &Device{
-		cols:       cols,
-		rows:       rows,
-		attr:       AttrDefault,
-		buf:        buf,
-		cell:       cell,
-		showCursor: true,
+		cols: cols,
+		rows: rows,
+		attr: AttrDefault,
+		buf:  buf,
+		cell: cell,
 		cursor: Cursor{
-			Show: true,
+			show: true,
 		},
 		fontDraw: font.Drawer{
 			Dst:  buf,
@@ -201,20 +194,25 @@ func (d *Device) VisualBell() {
 	draw.Draw(d.buf, d.buf.Bounds(), invertColors{d.buf}, image.Point{}, draw.Src)
 }
 
-/* Broken: need to make work with cursor display
+// WriteAt works like calling the save cursor position escape sequence, then
+// the absolute set cursor position escape sequence, writing to the terminal,
+// and then finally restoring cursor position. The offset is just the i'th
+// character on screen. Negative offset values are set to 0, values larger than
+// d.rows * d.cols are set to d.rows*d.cols.
 func (d *Device) WriteAt(p []byte, off int64) (n int, err error) {
-	oldPos := d.cursorPos
+	col, row := d.cursor.col, d.cursor.row
 	defer func() {
-		d.cursorPos = oldPos
+		d.cursor.col = col
+		d.cursor.row = row
 	}()
-	if off < int64(d.rows*d.cols) {
-		d.cursorPos = int(off)
-	} else {
-		d.cursorPos = d.rows * d.cols
+	if d.cursor.visible {
+		d.toggleCursor()
 	}
+	off = bound(off, 0, int64(d.rows*d.cols))
+	d.cursor.row = int(off) / d.cols
+	d.cursor.col = int(off) % d.cols
 	return d.Write(p)
 }
-*/
 
 func isControl(r rune) bool {
 	return r < 0x20
@@ -232,7 +230,7 @@ func (d *Device) Write(data []byte) (n int, err error) {
 	runes := bytes.Runes(data)
 
 	// first un-invert cursor (if we're showing it)
-	if d.cursorVisible {
+	if d.cursor.visible {
 		d.toggleCursor()
 	}
 
@@ -254,13 +252,15 @@ func (d *Device) Write(data []byte) (n int, err error) {
 			// one space to the left. To perform a what looks like an actual backspace you must
 			// send "\b \b".
 			// The below will allow backspace to move to the previous line, is that okay?
-			d.cursorPos = max(d.cursorPos-1, 0)
+			d.cursor.col = max(d.cursor.col-1, 0)
 		case '\t': // tab
-			d.cursorPos += d.Config.TabSize - (d.cursorPos%d.cols)%d.Config.TabSize
+			// move cursor to nearest multiple of TabSize, but don't move to next row
+			d.cursor.col = min(d.cols-2, d.cursor.col+d.Config.TabSize-(d.cursor.col%d.Config.TabSize))
 		case '\r': // carriage return
-			d.cursorPos -= d.cursorPos % d.cols
+			d.cursor.col = 0
 		case '\n': // linefeed
-			d.cursorPos += d.cols - (d.cursorPos % d.cols)
+			d.cursor.row++
+			d.cursor.col = 0
 			d.ScrollToCursor()
 		case 0x0E: // shift out (use alt character set)
 			d.useAltCharSet = true
@@ -288,17 +288,22 @@ func (d *Device) Write(data []byte) (n int, err error) {
 				endIdx = len(runes[i:])
 			}
 			// whichever comes first: end of runes, End of row, or a control char
-			endIdx = min(len(runes[i:]), d.ColsRemaining(), endIdx)
-
+			endIdx = min(len(runes[i:]), d.cols-d.cursor.col, endIdx)
 			d.RenderRunes(runes[i : i+endIdx])
-			d.cursorPos += endIdx
+
+			d.cursor.col += endIdx
+			if d.cursor.col >= d.cols {
+				d.cursor.col = 0
+				d.cursor.row++
+			}
+
 			i += endIdx - 1
 			d.ScrollToCursor()
 		}
 	}
 
 	// finally, update cursor, if needed
-	if d.showCursor {
+	if d.cursor.show {
 		d.toggleCursor()
 	}
 
@@ -333,48 +338,31 @@ func (d *Device) Scroll(amount int) {
 	d.Clear(0, 0, d.cols, amount)
 }
 
-func (d *Device) CursorCol() int {
-	return d.cursorPos % d.cols
-}
-
-func (d *Device) CursorRow() int {
-	return d.cursorPos / d.cols
-}
-
 // ColsRemaining returns how many columns are remaining until EOL
 func (d *Device) ColsRemaining() int {
-	return d.cols - (d.cursorPos % d.cols)
-}
-
-func (d *Device) MoveCursorRight() {
-	d.cursorPos++
-
-	// if we're at the end of the vterm, scroll down one line
-	d.ScrollToCursor()
+	return d.cols - d.cursor.col
 }
 
 func (d *Device) MoveCursorRel(x, y int) {
-	x = bound(x, -(d.cursorPos % d.cols), d.cols-(d.cursorPos%d.cols))
-	y = bound(y, -(d.cursorPos / d.cols), d.rows-(d.cursorPos/d.cols))
-
-	d.cursorPos += y*d.cols + x
+	d.cursor.col = bound(x+d.cursor.col, 0, d.cols)
+	d.cursor.row = bound(y+d.cursor.row, 0, d.rows)
 }
 
 func (d *Device) MoveCursorAbs(x, y int) {
-	x = bound(x, 0, d.cols)
-	y = bound(y, 0, d.rows)
-
-	d.cursorPos = y*d.cols + x
+	d.cursor.col = bound(x, 0, d.cols)
+	d.cursor.row = bound(y, 0, d.rows)
 }
 
 func (d *Device) ScrollToCursor() {
-	if d.cursorPos >= d.rows*d.cols {
-		//d.cursorPos -= d.cols
-		d.cursorPos = d.cols * (d.rows - 1)
+	// this one shouldn't happen
+	if d.cursor.col > d.cols {
+		d.cursor.col = 0
+		d.cursor.row++
+	}
+	// this is the more common scenario
+	if d.cursor.row > d.rows {
+		d.cursor.col = 0
+		d.cursor.row = d.rows - 1
 		d.Scroll(1)
 	}
-}
-
-func (d *Device) offsetToRowCol(off int) (row, col int) {
-	return off / d.cols, off % d.cols
 }
