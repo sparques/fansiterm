@@ -14,6 +14,23 @@ import (
 // for the purposes of rendering a cursor.
 type cursorRectFunc func(image.Rectangle, int, int) image.Rectangle
 
+// cursorPt returns the location of the cursor as an image.Point
+// From perspective of viewing the rendered terminal, this is the top left corner.
+func (d *Device) cursorPt() image.Point {
+	return image.Pt(d.Render.cell.Max.X*d.cursor.col, d.Render.cell.Max.Y*d.cursor.row)
+}
+
+// cursorFixedPt returns the location of the cursor as a fixed.Point26_6. From perspective of
+// viewing the image this is the bottom left corner.
+func (d *Device) cursorFixedPt() fixed.Point26_6 {
+	// Ascent is pixels above baseline and descent is pixels below baseline.
+	// We want the bottom of the glyph aligned with bottom of the cell.
+	return fixed.P(
+		d.Render.cell.Max.X*d.cursor.col,
+		d.Render.cell.Max.Y*(d.cursor.row+1)-d.Render.fontDraw.Face.Metrics().Descent.Round(),
+	)
+}
+
 // RenderRunes does not do *any* interpretation of escape codes or control characters like \r or \n.
 // It simply renders a slice of runes (as a string) at the cursor position. It is up to the caller
 // of RenderRunes to ensure there's enough space for the runes on the buffer and to process any
@@ -41,9 +58,7 @@ func (d *Device) RenderRunes(sym []rune) {
 	d.Clear(c, r, c+len(sym), r+1)
 
 	// draw character
-	// Ascent is pixels above baseline and descent is pixels below baseline. We want the bottom of the glyph aligned with bottom
-	// of the cell
-	d.Render.fontDraw.Dot = fixed.P(d.Render.cell.Max.X*c, d.Render.cell.Max.Y*(r+1)-d.Render.fontDraw.Face.Metrics().Descent.Round())
+	d.Render.fontDraw.Dot = d.cursorFixedPt()
 	d.Render.fontDraw.DrawString(string(sym))
 
 	// TODO: clean this mess up up; really could use better drawing routines
@@ -100,17 +115,13 @@ func underscoreRect(cell image.Rectangle, c, r int) image.Rectangle {
 	return image.Rect(0, cell.Max.Y-1, cell.Max.X, cell.Max.Y).Add(image.Pt(cell.Max.X*c, cell.Max.Y*r))
 }
 
-func (d *Device) cursorPt() image.Point {
-	return image.Pt(d.Render.cell.Max.X*d.cursor.col, d.Render.cell.Max.Y*d.cursor.row)
-}
-
 func (d *Device) toggleCursor() {
 	d.cursor.visible = !d.cursor.visible
 	rect := d.Render.cursorFunc(d.Render.cell, d.cursor.col, d.cursor.row)
 	draw.Draw(d.Render,
 		rect,
 		invertColors{d.Render},
-		rect.Min,
+		rect.Min, // must align rect in src to same position
 		draw.Src)
 }
 
@@ -156,32 +167,17 @@ func (ic invertColors) At(x, y int) color.Color {
 	return color.RGBA{255 - uint8(r), 255 - uint8(g), 255 - uint8(b), uint8(a)}
 }
 
-// faintColors composites image.Image and draw.Image, overriding At() and Set()
-// so that the alpha is half of the underlying image
-type faintColors struct {
-	image.Image
-}
-
-func (fc faintColors) At(x, y int) color.Color {
-	r, g, b, _ := fc.Image.At(x, y).RGBA()
-	return color.RGBA{uint8(r), uint8(g), uint8(b), uint8(0)}
-}
-
-/*
-func (fc faintColors) Set(x, y int, c color.Color) {
-	r, g, b, a := c.RGBA()
-	fc.Image.Set(x, y, color.RGBA{uint8(r), uint8(g), uint8(b), uint8(a) / 2})
-}
-*/
-
 // imageTranslate works a bit like the Subimage() method on various image package
 // objects. However, it wraps a draw.Image allowing both calls to Set() and At().
+// This doesn't restrict any pixel operations, so the margins still remain
+// accesible.
 type imageTranslate struct {
 	draw.Image
 	offset image.Point
 }
 
-// NewImageTranslate
+// NewImageTranslate returns an imageTranslate object which offsets all operations
+// to img by offset.
 func NewImageTranslate(offset image.Point, img draw.Image) *imageTranslate {
 	return &imageTranslate{
 		offset: offset,
@@ -194,48 +190,10 @@ func (it *imageTranslate) Set(x, y int, c color.Color) {
 }
 
 func (it *imageTranslate) At(x, y int) color.Color {
+	//return it.Image.At(x+it.offset.X, y+it.offset.Y)
 	return it.Image.At(x+it.offset.X, y+it.offset.Y)
 }
 
 func (it imageTranslate) Bounds() image.Rectangle {
 	return it.Image.Bounds().Sub(it.offset)
-}
-
-// Color both implements color.Color and image.Image.
-// image.Image needs a color.Model, so for convenience's
-// sake, Color also implements color.Model so it can
-// simply have ColorModel() return itself.
-// The main purpose of Color is so there is no need to
-// instantiate an image.Unform everytime we need to
-// draw something in a particular color.
-type Color struct {
-	rgba color.RGBA
-}
-
-func NewOpaqueColor(r, g, b uint8) Color {
-	return Color{color.RGBA{r, g, b, 255}}
-}
-
-func NewColor(r, g, b, a uint8) Color {
-	return Color{color.RGBA{r, g, b, a}}
-}
-
-func (c Color) RGBA() (r, g, b, a uint32) {
-	return c.rgba.RGBA()
-}
-
-func (c Color) At(int, int) color.Color {
-	return c.rgba
-}
-
-func (c Color) Bounds() image.Rectangle {
-	return image.Rectangle{image.Point{-1e9, -1e9}, image.Point{1e9, 1e9}}
-}
-
-func (c Color) ColorModel() color.Model {
-	return c
-}
-
-func (c Color) Convert(c2 color.Color) color.Color {
-	return c2
 }

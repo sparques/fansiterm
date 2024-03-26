@@ -11,31 +11,6 @@ import (
 	"golang.org/x/exp/constraints"
 )
 
-// These Colors are for the 4-bit ANSI colors
-// Since they're exported, they can be overridden.
-// It would be convient to have a pallet, but given
-// TrueColor support, why bother?
-
-var (
-	ColorBlack         = NewOpaqueColor(0, 0, 0)
-	ColorBrightBlack   = NewOpaqueColor(85, 85, 85)
-	ColorRed           = NewOpaqueColor(127, 0, 0)
-	ColorBrightRed     = NewOpaqueColor(255, 0, 0)
-	ColorGreen         = NewOpaqueColor(0, 170, 0)
-	ColorBrightGreen   = NewOpaqueColor(85, 255, 85)
-	ColorYellow        = NewOpaqueColor(170, 85, 0)
-	ColorBrightYellow  = NewOpaqueColor(255, 255, 85)
-	ColorBlue          = NewOpaqueColor(0, 0, 170)
-	ColorBrightBlue    = NewOpaqueColor(85, 85, 255)
-	ColorMagenta       = NewOpaqueColor(170, 0, 170)
-	ColorBrightMagenta = NewOpaqueColor(255, 85, 255)
-	ColorCyan          = NewOpaqueColor(0, 170, 170)
-	ColorBrightCyan    = NewOpaqueColor(85, 255, 255)
-	ColorWhite         = NewOpaqueColor(240, 240, 240) // Okay, I deviated from VGA colors here. VGA "white" is way too gray.
-	// ColorWhite       = NewOpaqueColor(170, 170, 170)
-	ColorBrightWhite = NewOpaqueColor(255, 255, 255)
-)
-
 var ErrEscapeSequenceIncomplete = errors.New("escape sequence incomplete")
 
 // consumeEscSequence figures out where the escape sequence in data ends.
@@ -308,6 +283,8 @@ func (d *Device) HandleCSISequence(seq []rune) {
 					continue
 				}
 				if args[i+1] == 5 {
+					// prevent going out of range
+					args[i] = args[i] % 256
 					if args[i] == 38 {
 						d.attr.Fg = Colors256[args[i+2]]
 					} else {

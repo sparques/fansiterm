@@ -1,5 +1,37 @@
 package fansiterm
 
+import (
+	"image"
+	"image/color"
+)
+
+// These Colors are for the 4-bit ANSI colors
+// Since they're exported, they can be overridden.
+// It would be convient to have a pallet, but given
+// TrueColor support, why bother?
+
+var (
+	ColorBlack         = NewOpaqueColor(0, 0, 0)
+	ColorBrightBlack   = NewOpaqueColor(85, 85, 85)
+	ColorRed           = NewOpaqueColor(127, 0, 0)
+	ColorBrightRed     = NewOpaqueColor(255, 0, 0)
+	ColorGreen         = NewOpaqueColor(0, 170, 0)
+	ColorBrightGreen   = NewOpaqueColor(85, 255, 85)
+	ColorYellow        = NewOpaqueColor(170, 85, 0)
+	ColorBrightYellow  = NewOpaqueColor(255, 255, 85)
+	ColorBlue          = NewOpaqueColor(0, 0, 170)
+	ColorBrightBlue    = NewOpaqueColor(85, 85, 255)
+	ColorMagenta       = NewOpaqueColor(170, 0, 170)
+	ColorBrightMagenta = NewOpaqueColor(255, 85, 255)
+	ColorCyan          = NewOpaqueColor(0, 170, 170)
+	ColorBrightCyan    = NewOpaqueColor(85, 255, 255)
+	// Okay, I deviated from VGA colors here. VGA "white" is way too gray.
+	ColorWhite = NewOpaqueColor(240, 240, 240)
+	// ColorWhite       = NewOpaqueColor(170, 170, 170)
+	ColorBrightWhite = NewOpaqueColor(255, 255, 255)
+)
+
+// Colors256 defines the default set of 256 Colors
 var Colors256 = [256]Color{
 	NewOpaqueColor(0, 0, 0),
 	NewOpaqueColor(128, 0, 0),
@@ -258,3 +290,58 @@ var Colors256 = [256]Color{
 	NewOpaqueColor(228, 228, 228),
 	NewOpaqueColor(238, 238, 238),
 }
+
+// Color both implements color.Color and image.Image.
+// image.Image needs a color.Model, so for convenience's
+// sake, Color also implements color.Model so it can
+// simply have ColorModel() return itself.
+// The main purpose of Color is so there is no need to
+// instantiate an image.Unform everytime we need to
+// draw something in a particular color.
+type Color struct {
+	rgba color.RGBA
+}
+
+func NewOpaqueColor(r, g, b uint8) Color {
+	return Color{color.RGBA{r, g, b, 255}}
+}
+
+func NewColor(r, g, b, a uint8) Color {
+	return Color{color.RGBA{r, g, b, a}}
+}
+
+func (c Color) RGBA() (r, g, b, a uint32) {
+	return c.rgba.RGBA()
+}
+
+func (c Color) At(int, int) color.Color {
+	return c.rgba
+}
+
+func (c Color) Bounds() image.Rectangle {
+	return image.Rectangle{image.Point{-1e9, -1e9}, image.Point{1e9, 1e9}}
+}
+
+func (c Color) ColorModel() color.Model {
+	return c
+}
+
+func (c Color) Convert(c2 color.Color) color.Color {
+	return c2
+}
+
+// the tinygo.org/x/drivers/pixel package has a somewhat incompatible
+// color interface with the color.Color interface. This type definition
+// and it's associated function allows a pixel.Color's RGBA method to be
+// cast so that it implements the color.Color interface.
+// Example:
+// pixelColor := pixel.NewColor[pixel.RGB888](127,127,127)
+// drawImage.Set(xPos,yPos, Colorizer(pixelColor.RGBA))
+type Colorizer func() color.RGBA
+
+func (c Colorizer) RGBA() (r, g, b, a uint32) {
+	v := c()
+	return uint32(v.R), uint32(v.G), uint32(v.B), uint32(v.A)
+}
+
+
