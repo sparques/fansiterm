@@ -2,7 +2,6 @@ package fansiterm
 
 import (
 	"image"
-	"image/color"
 	"image/draw"
 	_ "image/png"
 
@@ -153,47 +152,4 @@ func (d *Device) Clear(x1, y1, x2, y2 int) {
 			image.Point{},
 			draw.Src)
 	}
-}
-
-// invertColors composites an image.Image, overriding the At() method
-// so that colors returned are inverted. This is primarily for drawing
-// the cursor.
-type invertColors struct {
-	image.Image
-}
-
-func (ic invertColors) At(x, y int) color.Color {
-	r, g, b, a := ic.Image.At(x, y).RGBA()
-	return color.RGBA{255 - uint8(r), 255 - uint8(g), 255 - uint8(b), uint8(a)}
-}
-
-// imageTranslate works a bit like the Subimage() method on various image package
-// objects. However, it wraps a draw.Image allowing both calls to Set() and At().
-// This doesn't restrict any pixel operations, so the margins still remain
-// accesible.
-type imageTranslate struct {
-	draw.Image
-	offset image.Point
-}
-
-// NewImageTranslate returns an imageTranslate object which offsets all operations
-// to img by offset.
-func NewImageTranslate(offset image.Point, img draw.Image) *imageTranslate {
-	return &imageTranslate{
-		offset: offset,
-		Image:  img,
-	}
-}
-
-func (it *imageTranslate) Set(x, y int, c color.Color) {
-	it.Image.Set(x+it.offset.X, y+it.offset.Y, c)
-}
-
-func (it *imageTranslate) At(x, y int) color.Color {
-	//return it.Image.At(x+it.offset.X, y+it.offset.Y)
-	return it.Image.At(x+it.offset.X, y+it.offset.Y)
-}
-
-func (it imageTranslate) Bounds() image.Rectangle {
-	return it.Image.Bounds().Sub(it.offset)
 }
