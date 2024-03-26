@@ -50,6 +50,9 @@ func (it imageTranslate) Bounds() image.Rectangle {
 	return it.Image.Bounds().Sub(it.offset)
 }
 
+// imageTransform wraps an image.Image and transforms it. The tx method is used
+// to change what pixel is returned for a given x and y coordinate. This can implement
+// zooms, mirroring, and rotations or any combination thereof.
 // neat, but I'd have to override the Glyph method of Render.fontDraw to use it for
 // individual characters/tiles. It does work as a means to manipulate the whole
 // screen, though.
@@ -80,8 +83,8 @@ func verticalMirror(img image.Image) imageTransform {
 func rotateImage(img image.Image, degrees int) imageTransform {
 	midX := img.Bounds().Dx()/2 + img.Bounds().Min.X
 	midY := img.Bounds().Dy()/2 + img.Bounds().Min.Y
-
 	rotInRadians := float64(degrees) / 180 * math.Pi
+
 	return imageTransform{
 		Image: img,
 		tx: func(x, y int) (int, int) {
