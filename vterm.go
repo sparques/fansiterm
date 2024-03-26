@@ -173,7 +173,7 @@ func New(cols, rows int, buf draw.Image) *Device {
 func NewAtResolution(x, y int, buf draw.Image) *Device {
 	// TODO: This is a crappy way of figuring out what font we're using. Do something else.
 	d := New(1, 1, nil)
-	// use d.cell to figure out rows and cols; integer division will round down
+	// use d.Render.cell to figure out rows and cols; integer division will round down
 	// which is what we want
 	cols := x / d.Render.cell.Max.X
 	rows := y / d.Render.cell.Max.Y
@@ -324,28 +324,30 @@ func (d *Device) Scroll(amount int) {
 		//shift the lower portion of the image up
 		draw.Draw(d.Render.Image, // bug in go library here, I think; processBackward of draw/draw.go chokes on comparing d.Render
 			image.Rect(0, 0, d.cols*d.Render.cell.Max.X, (d.rows-amount)*d.Render.cell.Max.Y),
-			d.Render,
+			d.Render.Image,
 			image.Pt(0, amount*d.Render.cell.Max.Y),
 			draw.Src)
 		// fill in the lower portion with Bg
 		d.Clear(0, d.rows-amount, d.cols, d.rows)
-		// draw.Draw(d.Render,
-		// 	image.Rect(0, (d.rows-amount)*d.Render.cell.Max.Y, d.cols*d.Render.cell.Max.X, d.rows*d.Render.cell.Max.Y),
-		// 	&image.Uniform{d.attr.Bg},
-		// 	image.Pt(0, amount*d.Render.cell.Max.Y),
-		// 	draw.Src)
 		return
 	}
-	amount = -amount
 
-	//shift the upper portion of the image down
-	draw.Draw(d.Render,
-		image.Rect(0, amount*d.Render.cell.Max.Y, d.cols*d.Render.cell.Max.X, d.rows*d.Render.cell.Max.Y),
-		d.Render,
-		image.Pt(0, (d.rows-amount)*d.Render.cell.Max.Y),
-		draw.Src)
+	// negative scrolling, easier to do manual pixel pushing... should maybe do the same elsewhere.
+	// shift the upper portion of the image down, pixel line-by-line, starting from bottom
+	// use d.Render.cell.Dy() * d.rows instead of d.Render.Bounds().Dy() because if we're using
+	// a draw.Image that's wrapped in an imageTranslate, we'll scroll pixes outside our render-area.
+	for y := d.Render.cell.Dy()*d.rows + (amount)*d.Render.cell.Max.Y; y > 0; y-- {
+		for x := 0; x < d.Render.Bounds().Dx(); x++ {
+			if y+-amount*d.Render.cell.Max.Y > d.Render.Bounds().Dy() {
+				continue
+			}
+			d.Render.Image.Set(x, y+-amount*d.Render.cell.Max.Y,
+				d.Render.Image.At(x, y),
+			)
+		}
+	}
 	// fill in scrolls section with background
-	d.Clear(0, 0, d.cols, amount)
+	d.Clear(0, 0, d.cols, -amount)
 }
 
 // ColsRemaining returns how many columns are remaining until EOL
