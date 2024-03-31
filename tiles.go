@@ -2,6 +2,8 @@ package fansiterm
 
 import (
 	"image"
+	"image/color"
+	"image/draw"
 	_ "image/png"
 	"io"
 	"os"
@@ -40,6 +42,59 @@ func (ts TileSet) LoadTileFromReader(r rune, rd io.Reader) {
 	ts[r], _, err = image.Decode(rd)
 	if err != nil {
 		panic(err)
+	}
+}
+
+func rectangleAt(rect image.Rectangle, pt image.Point) image.Rectangle {
+	return image.Rect(pt.X, pt.Y, pt.X+rect.Dx(), pt.Y+rect.Dy())
+}
+
+/*
+func (ts TileSet) DrawTile(r rune, dst draw.Image, src image.Image, pt image.Point) {
+	// DrawMask: destination image, destination rectangle, src image, src point, mask image, mask point, op
+	draw.DrawMask(
+		dst, rectangleAt(ts[r].Bounds(), pt),
+		src, image.Point{},
+		ts[r], ts[r].Bounds().Min,
+		draw.Src)
+}
+*/
+
+// m is the maximum value for an unsigned 16bit integer
+const m = 1<<16 - 1
+
+// alphaBlend blends together two values. Fully opaque (alpha == m) means
+// all fg is shown, fully transparent (alpha == 0) means only bg is shown.
+// Otherwise blend the two together based on the ratio of alpha between 0 and m.
+// The arguments are uint32, the values of the arguments are in the 16bit range
+// and we need to return a uint8. Confused? I sure am.
+func alphaBlend(bg, fg, alpha uint32) uint8 {
+	return uint8(((bg*(m-alpha) + fg*alpha) / m) >> 8)
+}
+
+func (ts TileSet) DrawTile(r rune, dst draw.Image, pt image.Point, fg color.Color, bg color.Color) {
+	for x := 0; x < ts[r].Bounds().Dx(); x++ {
+		for y := 0; y < ts[r].Bounds().Dy(); y++ {
+			// only use the alpha channel from ts[r]?
+			// could have non-white or non-black pixels values override the foreground color.
+			_, _, _, alpha := ts[r].At(x+ts[r].Bounds().Min.X, y+ts[r].Bounds().Min.Y).RGBA()
+			switch alpha {
+			case 0x00:
+				dst.Set(pt.X+x, pt.Y+y, bg)
+			case m:
+				dst.Set(pt.X+x, pt.Y+y, fg)
+			default:
+				bgr, bgg, bgb, _ := bg.RGBA()
+				fgr, fgg, fgb, _ := fg.RGBA()
+
+				dst.Set(pt.X+x, pt.Y+y,
+					color.RGBA{
+						alphaBlend(bgr, fgr, alpha),
+						alphaBlend(bgg, fgg, alpha),
+						alphaBlend(bgb, fgb, alpha),
+						255})
+			}
+		}
 	}
 }
 

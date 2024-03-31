@@ -196,6 +196,7 @@ func (d *Device) HandleCSISequence(seq []rune) {
 			case 4:
 				d.attr.Underline = true
 			case 21:
+				d.attr.Underline = true
 				d.attr.DoubleUnderline = true
 			case 24:
 				d.attr.Underline = false

@@ -5,6 +5,7 @@ import (
 	"image/draw"
 	_ "image/png"
 
+	"github.com/sparques/fansiterm/tiles"
 	"golang.org/x/image/font/inconsolata"
 	"golang.org/x/image/math/fixed"
 )
@@ -50,7 +51,8 @@ func (d *Device) RenderRunes(sym []rune) {
 	case d.attr.Bold:
 		d.Render.fontDraw.Face = inconsolata.Bold8x16
 	default:
-		d.Render.fontDraw.Face = inconsolata.Regular8x16
+		//d.Render.fontDraw.Face = inconsolata.Regular8x16
+		d.Render.fontDraw.Face = TileSet(tiles.FiraNerd)
 	}
 
 	// draw background
@@ -59,6 +61,9 @@ func (d *Device) RenderRunes(sym []rune) {
 	// draw character
 	d.Render.fontDraw.Dot = d.cursorFixedPt()
 	d.Render.fontDraw.DrawString(string(sym))
+	// for i, glyph := range sym {
+	// 	TileSet(tiles.FiraNerd).DrawTile(glyph, d.Render.Image, d.cursorPt().Add(image.Pt(i*d.Render.cell.Dx(), 0)), d.attr.Fg, d.attr.Bg)
+	// }
 
 	// TODO: clean this mess up up; really could use better drawing routines
 	// Need to do a performance comparison; would it be better to have "glyphs" that are lines and render those overtop
@@ -76,7 +81,7 @@ func (d *Device) RenderRunes(sym []rune) {
 			draw.Src)
 	}
 
-	if d.attr.Underline || d.attr.DoubleUnderline {
+	if d.attr.Underline {
 		// draw a single pixel high line through the the whole cell, 3px above the bottom of the cell
 		draw.Draw(d.Render,
 			image.Rect(
