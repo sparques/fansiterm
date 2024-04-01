@@ -8,8 +8,10 @@ import (
 	"slices"
 	"time"
 
-	"golang.org/x/image/font"
-	"golang.org/x/image/font/inconsolata"
+	"github.com/sparques/fansiterm/tiles"
+	"github.com/sparques/fansiterm/tiles/fansi"
+	"github.com/sparques/fansiterm/tiles/inconsolata"
+	"github.com/sparques/fansiterm/tiles/x3270"
 )
 
 /*
@@ -17,6 +19,7 @@ vterm implements a virtual terminal. It supports being io.Write()n to. It handle
 escape sequences.
 */
 
+//go:export
 type Device struct {
 	// BellFunc is called if it is non-null and the terminal would
 	// display a bell character
@@ -77,9 +80,12 @@ type Cursor struct {
 
 type Render struct {
 	draw.Image
-	offset        image.Point
-	fontDraw      font.Drawer
-	altCharSet    TileSet
+	offset image.Point
+	// TODO: add bold and (maybe) italic? Could try wrapping charSet in a rotateImage(glyph, -5)?
+	charSet       tiles.Tiler
+	altCharSet    tiles.Tiler
+	boldCharSet   tiles.Tiler
+	italicCharSet tiles.Tiler
 	useAltCharSet bool
 	cell          image.Rectangle
 	cursorFunc    cursorRectFunc
@@ -129,12 +135,11 @@ func New(cols, rows int, buf draw.Image) *Device {
 	// Eventually I'd like to support different fonts and dynamic resizing
 	// I'm trying to get to an MVP first.
 	// thus, hardcoded font face
-	fontFace := inconsolata.Regular8x16
 	// 7x13 is smaller and non-antialiased. For small screens it might be a better choice
 	// than the 8x13 pre-render of inconsolata, however it doesn't have as many unicode-glyps
 	// as inconsolata.
 	//fontFace := basicfont.Face7x13
-	cell := image.Rect(0, 0, fontFace.Advance, fontFace.Height)
+	cell := image.Rect(0, 0, 8, 16)
 
 	if buf == nil {
 		buf = image.NewRGBA(image.Rect(0, 0, cols*cell.Max.X, rows*cell.Max.Y))
@@ -147,14 +152,13 @@ func New(cols, rows int, buf draw.Image) *Device {
 		rows: rows,
 		attr: AttrDefault,
 		Render: Render{
-			Image:      buf,
-			altCharSet: NewTileSet(),
-			cell:       cell,
-			fontDraw: font.Drawer{
-				Dst:  buf,
-				Face: fontFace,
-			},
-			cursorFunc: blockRect,
+			Image:         buf,
+			altCharSet:    fansi.AltCharSet,
+			charSet:       x3270.Regular8x16,
+			boldCharSet:   inconsolata.Bold8x16,
+			italicCharSet: &tiles.Italics{FontTileSet: x3270.Regular8x16},
+			cell:          cell,
+			cursorFunc:    blockRect,
 		},
 		cursor: Cursor{
 			show: true,

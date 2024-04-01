@@ -4,10 +4,6 @@ import (
 	"image"
 	"image/draw"
 	_ "image/png"
-
-	"github.com/sparques/fansiterm/tiles"
-	"golang.org/x/image/font/inconsolata"
-	"golang.org/x/image/math/fixed"
 )
 
 // cursorRectFunc specifies a function for generating a rectanglular region to invert,
@@ -20,17 +16,6 @@ func (d *Device) cursorPt() image.Point {
 	return image.Pt(d.Render.cell.Max.X*d.cursor.col, d.Render.cell.Max.Y*d.cursor.row)
 }
 
-// cursorFixedPt returns the location of the cursor as a fixed.Point26_6. From perspective of
-// viewing the image this is the bottom left corner.
-func (d *Device) cursorFixedPt() fixed.Point26_6 {
-	// Ascent is pixels above baseline and descent is pixels below baseline.
-	// We want the bottom of the glyph aligned with bottom of the cell.
-	return fixed.P(
-		d.Render.cell.Max.X*d.cursor.col,
-		d.Render.cell.Max.Y*(d.cursor.row+1)-d.Render.fontDraw.Face.Metrics().Descent.Round(),
-	)
-}
-
 // RenderRunes does not do *any* interpretation of escape codes or control characters like \r or \n.
 // It simply renders a slice of runes (as a string) at the cursor position. It is up to the caller
 // of RenderRunes to ensure there's enough space for the runes on the buffer and to process any
@@ -38,32 +23,33 @@ func (d *Device) cursorFixedPt() fixed.Point26_6 {
 func (d *Device) RenderRunes(sym []rune) {
 	// TODO: replace r and c
 	r, c := d.cursor.row, d.cursor.col
-	if !d.attr.Reversed {
-		d.Render.fontDraw.Src = d.attr.Fg
-	} else {
-		d.Render.fontDraw.Src = d.attr.Bg
-	}
 
+	fg, bg, ts := d.attr.Fg, d.attr.Bg, d.Render.charSet
 	// Which Face are we using? Note that useAltCharSet overrides Bold and Italics
 	switch {
 	case d.Render.useAltCharSet:
-		d.Render.fontDraw.Face = d.Render.altCharSet
+		ts = d.Render.altCharSet
 	case d.attr.Bold:
-		d.Render.fontDraw.Face = inconsolata.Bold8x16
-	default:
-		//d.Render.fontDraw.Face = inconsolata.Regular8x16
-		d.Render.fontDraw.Face = TileSet(tiles.FiraNerd)
+		ts = d.Render.boldCharSet
+	case d.attr.Italic:
+		ts = d.Render.italicCharSet
 	}
 
-	// draw background
-	d.Clear(c, r, c+len(sym), r+1)
+	if d.attr.Reversed {
+		fg, bg = bg, fg
+	}
 
-	// draw character
-	d.Render.fontDraw.Dot = d.cursorFixedPt()
-	d.Render.fontDraw.DrawString(string(sym))
-	// for i, glyph := range sym {
-	// 	TileSet(tiles.FiraNerd).DrawTile(glyph, d.Render.Image, d.cursorPt().Add(image.Pt(i*d.Render.cell.Dx(), 0)), d.attr.Fg, d.attr.Bg)
+	// consider making this work; then you can do bold + Italic
+	// if d.attr.Italic {
+	// 	ts = Italics{ts}
 	// }
+
+	// draw characters
+	for i, glyph := range sym {
+		ts.DrawTile(glyph, d.Render.Image,
+			d.cursorPt().Add(image.Pt(i*d.Render.cell.Dx(), 0)),
+			fg, bg)
+	}
 
 	// TODO: clean this mess up up; really could use better drawing routines
 	// Need to do a performance comparison; would it be better to have "glyphs" that are lines and render those overtop
@@ -76,7 +62,7 @@ func (d *Device) RenderRunes(sym []rune) {
 				d.Render.cell.Max.Y/2,
 				d.Render.cell.Max.X*len(sym),
 				d.Render.cell.Max.Y/2+1).Add(image.Pt(d.Render.cell.Max.X*c, d.Render.cell.Max.Y*(r))),
-			d.Render.fontDraw.Src,
+			fg,
 			image.Point{},
 			draw.Src)
 	}
@@ -89,7 +75,7 @@ func (d *Device) RenderRunes(sym []rune) {
 				d.Render.cell.Max.Y-1,
 				d.Render.cell.Max.X*len(sym),
 				d.Render.cell.Max.Y).Add(image.Pt(d.Render.cell.Max.X*c, d.Render.cell.Max.Y*(r))),
-			d.Render.fontDraw.Src,
+			fg,
 			image.Point{},
 			draw.Src)
 		// draw second line for double underline
@@ -100,7 +86,7 @@ func (d *Device) RenderRunes(sym []rune) {
 					d.Render.cell.Max.Y-3,
 					d.Render.cell.Max.X*len(sym),
 					d.Render.cell.Max.Y-2).Add(image.Pt(d.Render.cell.Max.X*c, d.Render.cell.Max.Y*(r))),
-				d.Render.fontDraw.Src,
+				fg,
 				image.Point{},
 				draw.Src)
 		}
