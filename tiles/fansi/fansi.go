@@ -13,6 +13,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/sparques/fansiterm/tiles"
 )
@@ -37,8 +38,17 @@ func main() {
 	fmt.Fprintf(buf, "var %s = &tiles.FontTileSet{\n", "AltCharSet")
 	fmt.Fprintf(buf, "Rectangle: image.Rect(0,0, %d, %d),\n", 8, 16)
 	fmt.Fprintf(buf, "Glyphs: map[rune][]uint8{\n")
-	for r, pix := range ts.Glyphs {
-		fmt.Fprintf(buf, "\t%d: %#v,\n", r, pix)
+
+	rr := make([]rune, len(ts.Glyphs))
+	i := 0
+	for r := range ts.Glyphs {
+		rr[i] = r
+		i++
+	}
+	slices.Sort(rr)
+
+	for _, r := range rr {
+		fmt.Fprintf(buf, "\t%d: %#v,\n", r, ts.Glyphs[r])
 	}
 	fmt.Fprintf(buf, "}}\n")
 
