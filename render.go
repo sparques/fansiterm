@@ -106,8 +106,9 @@ func underscoreRect(cell image.Rectangle, c, r int) image.Rectangle {
 }
 
 func (d *Device) toggleCursor() {
-	d.cursor.visible = !d.cursor.visible
 	rect := d.Render.cursorFunc(d.Render.cell, d.cursor.col, d.cursor.row)
+	d.cursor.visible = !d.cursor.visible
+
 	draw.Draw(d.Render,
 		rect,
 		invertColors{d.Render},
