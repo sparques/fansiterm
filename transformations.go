@@ -82,6 +82,25 @@ func verticalMirror(img image.Image) imageTransform {
 	}
 }
 
+// wrapEdges uses modulus to make an image infinitely repeat
+func wrapEdges(img image.Image) imageTransform {
+	return imageTransform{
+		Image: img,
+		tx: func(x, y int) (int, int) {
+			x = (x - img.Bounds().Min.X) % img.Bounds().Dx()
+			y = (y - img.Bounds().Min.Y) % img.Bounds().Dy()
+			if x < 0 {
+				x += img.Bounds().Dx()
+			}
+			if y < 0 {
+				y += img.Bounds().Dy()
+			}
+
+			return x + img.Bounds().Min.X, y + img.Bounds().Min.Y
+		},
+	}
+}
+
 func rotateImage(img image.Image, degrees int) imageTransform {
 	midX := img.Bounds().Dx()/2 + img.Bounds().Min.X
 	midY := img.Bounds().Dy()/2 + img.Bounds().Min.Y
@@ -205,6 +224,44 @@ func rotateDraw(img draw.Image, degrees int) drawTransform {
 			r := math.Sqrt(math.Pow(float64(y-midY), 2) + math.Pow(float64(x-midX), 2))
 
 			return int(math.Round(r*math.Cos(newTheta))) + midX, int(math.Round(r*math.Sin(newTheta))) + midY
+		},
+	}
+}
+
+type colorTransform struct {
+	image.Image
+	at func(x, y int) color.Color
+}
+
+func (ct *colorTransform) At(x, y int) color.Color {
+	return ct.at(x, y)
+}
+
+func blurImage(img image.Image) *colorTransform {
+	return &colorTransform{
+		Image: img,
+		at: func(x, y int) color.Color {
+			var R, G, B uint32
+			var i uint32
+			for sx := -1; sx < 2; sx++ {
+				// if x+sx < img.Bounds().Min.X || x+sx > img.Bounds().Max.X {
+				// 	continue
+				// }
+				for sy := -1; sy < 2; sy++ {
+					// if y+sy < img.Bounds().Min.Y || y+sy > img.Bounds().Max.Y {
+					// 	continue
+					// }
+					i++
+					r, g, b, _ := img.At(x+sx, y+sy).RGBA()
+					R += r
+					G += g
+					B += b
+				}
+			}
+			R /= i
+			G /= i
+			B /= i
+			return color.RGBA{uint8(R / 0x101), uint8(G / 0x101), uint8(B / 0x101), 255}
 		},
 	}
 }
