@@ -21,7 +21,9 @@ import (
 	"image/draw"
 	"io/ioutil"
 	"log"
+	"math"
 	"net/http"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -39,6 +41,7 @@ var (
 	vr         = flag.String("var", "example", "the variable name for the generated code")
 	tileWidth  = flag.Int("width", 8, "width of tile")
 	tileHeight = flag.Int("height", 16, "height of tile")
+	boostAlpha = flag.Bool("boostalpha", true, "scale the alpha of pixels so that the brightest pixel per glyph is 255.")
 )
 
 func loadFontFile() ([]byte, error) {
@@ -122,7 +125,11 @@ func main() {
 			}
 			dst := image.NewAlpha(image.Rect(0, 0, *tileWidth, *tileHeight))
 			draw.DrawMask(dst, dr, image.White, image.Point{}, mask, maskp, draw.Src)
-			fontTileSet.Glyphs[r] = dst.Pix
+			if *boostAlpha {
+				fontTileSet.Glyphs[r] = scalePixels(dst.Pix)
+			} else {
+				fontTileSet.Glyphs[r] = dst.Pix
+			}
 		}
 	}
 
@@ -133,8 +140,20 @@ func main() {
 	fmt.Fprintf(buf, "var %s = &tiles.FontTileSet{\n", *vr)
 	fmt.Fprintf(buf, "Rectangle: image.Rect(0,0, %d, %d),\n", *tileWidth, *tileHeight)
 	fmt.Fprintf(buf, "Glyphs: map[rune][]uint8{\n")
-	for r, pix := range fontTileSet.Glyphs {
-		fmt.Fprintf(buf, "\t%d: %#v,\n", r, pix)
+
+	// maps are intentionally randomized, but we want to consistently order
+	// our entries; generate a slice of the keys and sort them
+
+	rr := make([]rune, len(fontTileSet.Glyphs))
+	i := 0
+	for r := range fontTileSet.Glyphs {
+		rr[i] = r
+		i++
+	}
+	slices.Sort(rr)
+
+	for _, r := range rr {
+		fmt.Fprintf(buf, "\t%d: %#v,\n", r, fontTileSet.Glyphs[r])
 	}
 	fmt.Fprintf(buf, "}}\n")
 
@@ -145,4 +164,24 @@ func main() {
 	if err := ioutil.WriteFile(*vr+".go", fmted, 0644); err != nil {
 		log.Fatalf("ioutil.WriteFile: %v", err)
 	}
+}
+
+func scalePixels(pix []uint8) []uint8 {
+	maxPix := uint16(0)
+	//nonzerocount := 0
+	for _, p := range pix {
+		maxPix = max(maxPix, uint16(p))
+	}
+
+	if maxPix == 0 || maxPix == 0xFF {
+		return pix
+	}
+
+	// stupid integer math hurts my head... let's cheat with some floats
+	multiplier := 255 / float64(maxPix)
+	for i := range pix {
+		pix[i] = uint8(math.Round(float64(pix[i]) * multiplier))
+	}
+
+	return pix
 }
