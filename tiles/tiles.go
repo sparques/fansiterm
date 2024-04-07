@@ -12,10 +12,9 @@ import (
 
 var EmptyTile = image.NewAlpha(image.Rect(0, 0, 8, 16))
 
-// TileSet TODO: make generated TileSets more storage efficient; all the stirde/rect info is redundant. We just need pixel data.
-
-// Idea: TileSet can still just be map[rune]image.Image which implements the Tiler interface
-// And then FontTileSet can be a different format:
+// Fallback is used when a FontTileSet cannot find a Glyph for a rune. By default Fallback is initialized to an internal fallback
+// that implements Tiler such that all runes return EmptyTile.
+var Fallback = &fallback{}
 
 type Tiler interface {
 	DrawTile(r rune, dst draw.Image, pt image.Point, fg color.Color, bg color.Color)
@@ -46,10 +45,24 @@ func (fts *FontTileSet) GetTile(r rune) image.Image {
 	return fts.Glyph(r)
 }
 
+func (fts *FontTileSet) SetTile(r rune, img image.Image) {
+	fts.Glyphs[r] = getPix(img)
+}
+
 func (fts *FontTileSet) DrawTile(r rune, dst draw.Image, pt image.Point, fg color.Color, bg color.Color) {
+	pix, ok := fts.Glyphs[r]
+	if !ok {
+		if Tiler(Fallback) != Tiler(fts) {
+			Fallback.DrawTile(r, dst, pt, fg, bg)
+			return
+		}
+		// fallback to fallback, use EmptyTile
+		pix = EmptyTile.Pix
+
+	}
 	for x := 0; x < fts.Rectangle.Dx(); x++ {
 		for y := 0; y < fts.Rectangle.Dy(); y++ {
-			switch fts.Glyphs[r][y*fts.Dx()+x] {
+			switch pix[y*fts.Dx()+x] {
 			// skip all the math for the most common values: 0xFF and 0xFF
 			case 0x00:
 				dst.Set(pt.X+x, pt.Y+y, bg)
@@ -73,9 +86,16 @@ func (fts *FontTileSet) DrawTile(r rune, dst draw.Image, pt image.Point, fg colo
 	}
 }
 
-// but this does force a lot of runtime allocations, which sucks. Maybe this can just be an
-// at initialization / load allocation? So we're not using as much memory to store redundant data
-// but we're also not doing tons of allocations and churning the GC needlessly.
+// fallback implements Tiler such that all runes return EmptyTile
+type fallback struct{}
+
+func (*fallback) GetTile(rune) image.Image {
+	return EmptyTile
+}
+
+func (*fallback) DrawTile(r rune, dst draw.Image, pt image.Point, fg color.Color, bg color.Color) {
+	drawTile(dst, pt, EmptyTile, fg, bg)
+}
 
 // TileSet
 type TileSet map[rune]image.Image
@@ -133,6 +153,23 @@ func (i Italics) DrawTile(r rune, dst draw.Image, pt image.Point, fg color.Color
 
 func (i Italics) GetTile(r rune) image.Image {
 	return rotateImage(i.FontTileSet.GetTile(r), -10)
+}
+
+type Bold struct {
+	*FontTileSet
+}
+
+func (b Bold) DrawTile(r rune, dst draw.Image, pt image.Point, fg color.Color, bg color.Color) {
+	if _, ok := b.FontTileSet.Glyphs[r]; !ok {
+		drawTile(dst, pt, EmptyTile, fg, bg)
+		return
+	}
+	drawTile(dst, pt, b.GetTile(r), fg, bg)
+}
+
+func (b Bold) GetTile(r rune) image.Image {
+	// todo, composite the same tile with itself here shifted by one pixel to fake "bold"
+	return b.FontTileSet.GetTile(r)
 }
 
 // drawTile is a broadly compatible, if not efficient, way to draw a tile.
@@ -209,4 +246,20 @@ const m = 1<<16 - 1
 //go:inline
 func alphaBlend(bg, fg, alpha uint32) uint8 {
 	return uint8(((bg*(m-alpha) + fg*alpha) / m) >> 8)
+}
+
+// getPix extracts the alpha values from an image.Image
+func getPix(img image.Image) []uint8 {
+	if alphaImg, ok := img.(*image.Alpha); ok {
+		return alphaImg.Pix
+	}
+	// otherwise, just do it the dumb inefficient, but guaranteed to work way
+	pix := make([]uint8, img.Bounds().Dx()*img.Bounds().Dy())
+	for y := img.Bounds().Min.Y; y <= img.Bounds().Max.Y; y++ {
+		for x := img.Bounds().Min.X; x <= img.Bounds().Max.X; x++ {
+			_, _, _, a := img.At(x, y).RGBA()
+			pix[y*img.Bounds().Dx()+x] = uint8(a / 0x101)
+		}
+	}
+	return pix
 }

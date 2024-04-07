@@ -2,9 +2,13 @@ package fansiterm
 
 import (
 	"fmt"
+	"image"
+	"image/color"
 	"image/png"
 	"os"
 	"testing"
+
+	"github.com/sparques/fansiterm/tiles"
 )
 
 func Test_RenderScreenshot(t *testing.T) {
@@ -15,10 +19,22 @@ func Test_RenderScreenshot(t *testing.T) {
 	term.Write([]byte("  Freq:\t\t\x0e{\x1b[7m433\x0f MHz\x0e\x1b[27m}\x0f\n\n"))
 	term.Write([]byte("  Bandwidth:\t\x0e{\x1b[7m005\x0f KHz\x0e\x1b[27m}\x0f\n\n"))
 
-	// generate true-color gradient
-	for i := 0; i < term.cols; i++ {
-		term.Write([]byte(fmt.Sprintf("\x1b[48;2;%d;65;127m•", i*256/term.cols)))
+	// generate a horizontal gradient tile
+	gradientTile := image.NewAlpha(image.Rect(0, 0, 8, 16))
+	for y := 0; y < 16; y++ {
+		for x := 0; x < 8; x++ {
+			gradientTile.Set(x, y, color.Alpha{uint8(256 / 8 * x)})
+		}
 	}
+	// add gradient tile to altCharSet as the '#' char
+	term.Render.altCharSet.(*tiles.FontTileSet).Glyphs['#'] = gradientTile.Pix
+
+	// generate true-color gradient
+	for i := 0; i < term.cols-1; i++ {
+		term.Write([]byte(fmt.Sprintf("\x0e\x1b[48;2;65;127;%d;38;2;65;127;%dm#", (i)*256/term.cols, (i+1)*256/term.cols)))
+	}
+
+	term.Write([]byte(" "))
 
 	fh, err := os.Create("screenshot.png")
 	if err != nil {

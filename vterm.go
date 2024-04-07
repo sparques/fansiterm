@@ -11,7 +11,7 @@ import (
 	"github.com/sparques/fansiterm/tiles"
 	"github.com/sparques/fansiterm/tiles/fansi"
 	"github.com/sparques/fansiterm/tiles/inconsolata"
-	"github.com/sparques/fansiterm/tiles/x3270"
+	"github.com/sparques/fansiterm/xform"
 )
 
 /*
@@ -154,9 +154,9 @@ func New(cols, rows int, buf draw.Image) *Device {
 		Render: Render{
 			Image:         buf,
 			altCharSet:    fansi.AltCharSet,
-			charSet:       x3270.Regular8x16,
+			charSet:       inconsolata.Regular8x16,
 			boldCharSet:   inconsolata.Bold8x16,
-			italicCharSet: &tiles.Italics{FontTileSet: x3270.Regular8x16},
+			italicCharSet: &tiles.Italics{FontTileSet: inconsolata.Regular8x16},
 			cell:          cell,
 			cursorFunc:    blockRect,
 		},
@@ -173,7 +173,9 @@ func New(cols, rows int, buf draw.Image) *Device {
 // NewAtResolution is like New, but rather than specifying the columns and rows,
 // you specify the desired resolution. The maximum rows and cols will be determined
 // automatically and the terminal rendered in the center.
-// TODO: allow offset to be manually specified
+// Fansiterm will only ever update / work on the rectangle it has claimed.
+// If you want to use an existing backing buffer and position that, use NewWithBuf and
+// use xform.SubImage() to locate the terminal.
 func NewAtResolution(x, y int, buf draw.Image) *Device {
 	// TODO: This is a crappy way of figuring out what font we're using. Do something else.
 	d := New(1, 1, nil)
@@ -181,7 +183,7 @@ func NewAtResolution(x, y int, buf draw.Image) *Device {
 	// which is what we want
 	cols := x / d.Render.cell.Max.X
 	rows := y / d.Render.cell.Max.Y
-	offset := image.Pt((x%d.Render.cell.Max.X)/2, (y%d.Render.cell.Max.Y)/2)
+	offset := image.Pt((x%d.Render.cell.Dx())/2, (y%d.Render.cell.Dy())/2)
 
 	//fmt.Println("Res:", x, "x", y, "Cols:", cols, "Rows:", rows, "Offset:", offset)
 
@@ -195,16 +197,46 @@ func NewAtResolution(x, y int, buf draw.Image) *Device {
 		// no offset needed, skip wrapping buf and save us some memory and cycles
 		return New(cols, rows, buf)
 	} else {
-		return New(cols, rows, NewImageTranslate(offset, buf))
+		// return New(cols, rows, xform.Translate(buf, offset))
+		// return New(cols, rows, xform.NewImageTranslate(offset, buf))
+		return New(cols, rows,
+			xform.SubImage(buf, image.Rect(0, 0, cols*d.Render.cell.Dx(), rows*d.Render.cell.Dy()).Add(offset)))
 	}
 
 }
 
+// NewWithBuf uses buf as its target. NewWithBuf() will panic if called against a
+// nil buf. If using fansiterm with backing hardware, NewWithBuf is likely the way
+// you want to instantiate fansiterm.
+// If you have buf providing an interface to a 240x135 screen, using the default
+// 8x16 tiles, you can have an 40x8 cell terminal, with 7 rows of pixels leftover.
+// If you want to have those extra 7 rows above the rendered terminal, you can do
+// so like this:
+//
+// term := NewWithBuf(xform.SubImage(buf,image.Rect(0,0,240,128).Add(0,7)))
+//
+// Note: you can skip the Add() and just define your rectangle as
+// image.Rect(0,7,240,135), but I find supplying the actual dimensions and then
+// adding an offset to be clearer.
+func NewWithBuf(buf draw.Image) *Device {
+	if buf == nil {
+		panic("NewWithBuf must be called with non-nil buf")
+	}
+
+	// TODO: How do I dynamically do this in a way that makes sense?
+	cols := buf.Bounds().Dx() / 8
+	rows := buf.Bounds().Dy() / 16
+
+	draw.Draw(buf, buf.Bounds(), image.Black, image.Point{}, draw.Src)
+
+	return New(cols, rows, buf)
+}
+
 // VisualBell inverts the screen for a quarter second.
 func (d *Device) VisualBell() {
-	draw.Draw(d.Render, d.Render.Bounds(), invertColors{d.Render}, image.Point{}, draw.Src)
+	draw.Draw(d.Render, d.Render.Bounds(), xform.InvertColors(d.Render), image.Point{}, draw.Src)
 	time.Sleep(time.Second / 4)
-	draw.Draw(d.Render, d.Render.Bounds(), invertColors{d.Render}, image.Point{}, draw.Src)
+	draw.Draw(d.Render, d.Render.Bounds(), xform.InvertColors(d.Render), image.Point{}, draw.Src)
 }
 
 // WriteAt works like calling the save cursor position escape sequence, then
@@ -215,8 +247,10 @@ func (d *Device) VisualBell() {
 func (d *Device) WriteAt(p []byte, off int64) (n int, err error) {
 	col, row := d.cursor.col, d.cursor.row
 	defer func() {
+		d.hideCursor()
 		d.cursor.col = col
 		d.cursor.row = row
+		d.showCursor()
 	}()
 	if d.cursor.visible {
 		d.toggleCursor()
@@ -264,7 +298,6 @@ func (d *Device) Write(data []byte) (n int, err error) {
 			// however, when the terminal gets a backspace, that's the same as just moving cursor
 			// one space to the left. To perform a what looks like an actual backspace you must
 			// send "\b \b".
-			// The below will allow backspace to move to the previous line, is that okay?
 			d.cursor.col = max(d.cursor.col-1, 0)
 		case '\t': // tab
 			// move cursor to nearest multiple of TabSize, but don't move to next row
@@ -292,7 +325,7 @@ func (d *Device) Write(data []byte) (n int, err error) {
 		default:
 			// consume as many non-control characters as possible
 			// render these with RenderRunes
-			// increment d.cursorPos; increment i
+			// increment cursor; increment i
 
 			// Originally I did this with strings.IndexFunc(string(runes[i:]), isControl)
 			// however this seems to return the byte offset rather than the rune offset
@@ -316,32 +349,38 @@ func (d *Device) Write(data []byte) (n int, err error) {
 	}
 
 	// finally, update cursor, if needed
-	if d.cursor.show {
-		d.toggleCursor()
-	}
+	d.showCursor()
 
 	return len(data), nil
 }
 
 func (d *Device) Scroll(amount int) {
+	// TODO: add some check here to see if our backing device/buffer supports scrolling
+	// TODO: come up with interface for generic scrolling 😂
 	if amount > 0 {
-		//shift the lower portion of the image up
-		draw.Draw(d.Render.Image, // bug in go library here, I think; processBackward of draw/draw.go chokes on comparing d.Render
-			image.Rect(0, 0, d.cols*d.Render.cell.Max.X, (d.rows-amount)*d.Render.cell.Max.Y),
-			d.Render.Image,
-			image.Pt(0, amount*d.Render.cell.Max.Y),
-			draw.Src)
+		// shift the lower portion of the image up, row by row, starting with the row
+		// that will become thew new row zero
+		for y := (amount) * d.Render.cell.Dy(); y <= d.Render.cell.Dy()*(d.rows); y++ {
+			for x := d.Render.Bounds().Min.X; x <= d.Render.Bounds().Max.X; x++ {
+				// if y+-amount*d.Render.cell.Max.Y > d.Render.Bounds().Dy() {
+				// 	continue
+				// }
+				d.Render.Image.Set(x, y-amount*d.Render.cell.Dy()+d.Render.Bounds().Min.Y,
+					d.Render.Image.At(x, y+d.Render.Bounds().Min.Y),
+				)
+			}
+		}
 		// fill in the lower portion with Bg
 		d.Clear(0, d.rows-amount, d.cols, d.rows)
 		return
 	}
 
-	// negative scrolling, easier to do manual pixel pushing... should maybe do the same elsewhere.
+	// negative scrolling
 	// shift the upper portion of the image down, pixel line-by-line, starting from bottom
 	// use d.Render.cell.Dy() * d.rows instead of d.Render.Bounds().Dy() because if we're using
 	// a draw.Image that's wrapped in an imageTranslate, we'll scroll pixes outside our render-area.
-	for y := d.Render.cell.Dy()*d.rows + (amount)*d.Render.cell.Max.Y; y > 0; y-- {
-		for x := 0; x < d.Render.Bounds().Dx(); x++ {
+	for y := d.Render.cell.Dy()*d.rows + (amount)*d.Render.cell.Dy(); y > 0; y-- {
+		for x := d.Render.Bounds().Min.X; x <= d.Render.Bounds().Max.X; x++ {
 			if y+-amount*d.Render.cell.Max.Y > d.Render.Bounds().Dy() {
 				continue
 			}

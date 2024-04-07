@@ -42,6 +42,7 @@ var (
 	tileWidth  = flag.Int("width", 8, "width of tile")
 	tileHeight = flag.Int("height", 16, "height of tile")
 	boostAlpha = flag.Bool("boostalpha", true, "scale the alpha of pixels so that the brightest pixel per glyph is 255.")
+	dump       = flag.Bool("showmetrics", false, "Show font metrics and exit (doesn't generate anything).")
 )
 
 func loadFontFile() ([]byte, error) {
@@ -110,6 +111,14 @@ func main() {
 	})
 	defer face.Close()
 
+	baseline := fixed.I(16) - face.Metrics().Descent
+
+	if *dump {
+		fmt.Printf("%+v\n", face.Metrics())
+		fmt.Printf("Baseline: %+v\n", baseline)
+		return
+	}
+
 	fontTileSet := &tiles.FontTileSet{
 		Rectangle: image.Rect(0, 0, *tileWidth, *tileHeight),
 		Glyphs:    make(map[rune][]uint8),
@@ -118,8 +127,7 @@ func main() {
 	ranges := loadRanges(f)
 	for _, rr := range ranges {
 		for r := rr[0]; r < rr[1]; r++ {
-
-			dr, mask, maskp, _, ok := face.Glyph(fixed.Point26_6{fixed.I(0), fixed.I(16) - face.Metrics().Descent}, r)
+			dr, mask, maskp, _, ok := face.Glyph(fixed.Point26_6{fixed.I(0), baseline}, r)
 			if !ok {
 				log.Fatalf("could not load glyph for %U", r)
 			}

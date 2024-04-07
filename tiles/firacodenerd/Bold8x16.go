@@ -1,7 +1,12 @@
+//go:build tilesetfiracodenerd
+
 package firacodenerd
 
-import "image"
-import "github.com/sparques/fansiterm/tiles"
+import (
+	"image"
+
+	"github.com/sparques/fansiterm/tiles"
+)
 
 var Bold8x16 = &tiles.FontTileSet{
 	Rectangle: image.Rect(0, 0, 8, 16),

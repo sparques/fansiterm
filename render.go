@@ -4,16 +4,18 @@ import (
 	"image"
 	"image/draw"
 	_ "image/png"
+
+	"github.com/sparques/fansiterm/xform"
 )
 
 // cursorRectFunc specifies a function for generating a rectanglular region to invert,
 // for the purposes of rendering a cursor.
-type cursorRectFunc func(image.Rectangle, int, int) image.Rectangle
+type cursorRectFunc func(image.Rectangle, image.Point) image.Rectangle
 
 // cursorPt returns the location of the cursor as an image.Point
-// From perspective of viewing the rendered terminal, this is the top left corner.
+// From perspective of viewing the rendered terminal, this is the top left corner of the cell the cursor is in.
 func (d *Device) cursorPt() image.Point {
-	return image.Pt(d.Render.cell.Max.X*d.cursor.col, d.Render.cell.Max.Y*d.cursor.row)
+	return image.Pt(d.Render.Bounds().Min.X+d.Render.cell.Dx()*d.cursor.col, d.Render.Bounds().Min.Y+d.Render.cell.Dy()*d.cursor.row)
 }
 
 // RenderRunes does not do *any* interpretation of escape codes or control characters like \r or \n.
@@ -21,9 +23,6 @@ func (d *Device) cursorPt() image.Point {
 // of RenderRunes to ensure there's enough space for the runes on the buffer and to process any
 // control sequences.
 func (d *Device) RenderRunes(sym []rune) {
-	// TODO: replace r and c
-	r, c := d.cursor.row, d.cursor.col
-
 	fg, bg, ts := d.attr.Fg, d.attr.Bg, d.Render.charSet
 	// Which Face are we using? Note that useAltCharSet overrides Bold and Italics
 	switch {
@@ -59,9 +58,9 @@ func (d *Device) RenderRunes(sym []rune) {
 		draw.Draw(d.Render,
 			image.Rect(
 				0,
-				d.Render.cell.Max.Y/2,
+				d.Render.cell.Max.Y/2+1,
 				d.Render.cell.Max.X*len(sym),
-				d.Render.cell.Max.Y/2+1).Add(image.Pt(d.Render.cell.Max.X*c, d.Render.cell.Max.Y*(r))),
+				d.Render.cell.Max.Y/2+2).Add(d.cursorPt()),
 			fg,
 			image.Point{},
 			draw.Src)
@@ -74,7 +73,7 @@ func (d *Device) RenderRunes(sym []rune) {
 				0,
 				d.Render.cell.Max.Y-1,
 				d.Render.cell.Max.X*len(sym),
-				d.Render.cell.Max.Y).Add(image.Pt(d.Render.cell.Max.X*c, d.Render.cell.Max.Y*(r))),
+				d.Render.cell.Max.Y).Add(d.cursorPt()),
 			fg,
 			image.Point{},
 			draw.Src)
@@ -85,7 +84,7 @@ func (d *Device) RenderRunes(sym []rune) {
 					0,
 					d.Render.cell.Max.Y-3,
 					d.Render.cell.Max.X*len(sym),
-					d.Render.cell.Max.Y-2).Add(image.Pt(d.Render.cell.Max.X*c, d.Render.cell.Max.Y*(r))),
+					d.Render.cell.Max.Y-2).Add(d.cursorPt()),
 				fg,
 				image.Point{},
 				draw.Src)
@@ -93,31 +92,37 @@ func (d *Device) RenderRunes(sym []rune) {
 	}
 }
 
-func blockRect(cell image.Rectangle, c, r int) image.Rectangle {
-	return cell.Add(image.Pt(cell.Max.X*c, cell.Max.Y*r))
+func blockRect(cell image.Rectangle, pt image.Point) image.Rectangle {
+	return cell.Add(pt)
 }
 
-func beamRect(cell image.Rectangle, c, r int) image.Rectangle {
-	return image.Rect(0, 0, 1, cell.Max.Y).Add(image.Pt(cell.Max.X*c, cell.Max.Y*r))
+func beamRect(cell image.Rectangle, pt image.Point) image.Rectangle {
+	return image.Rect(0, 0, 1, cell.Max.Y).Add(pt)
 }
 
-func underscoreRect(cell image.Rectangle, c, r int) image.Rectangle {
-	return image.Rect(0, cell.Max.Y-1, cell.Max.X, cell.Max.Y).Add(image.Pt(cell.Max.X*c, cell.Max.Y*r))
+func underscoreRect(cell image.Rectangle, pt image.Point) image.Rectangle {
+	return image.Rect(0, cell.Max.Y-1, cell.Max.X, cell.Max.Y).Add(pt)
 }
 
 func (d *Device) toggleCursor() {
-	rect := d.Render.cursorFunc(d.Render.cell, d.cursor.col, d.cursor.row)
+	rect := d.Render.cursorFunc(d.Render.cell, d.cursorPt())
 	d.cursor.visible = !d.cursor.visible
 
 	draw.Draw(d.Render,
 		rect,
-		invertColors{d.Render},
+		xform.InvertColors(d.Render),
 		rect.Min, // must align rect in src to same position
 		draw.Src)
 }
 
 func (d *Device) hideCursor() {
 	if d.cursor.visible {
+		d.toggleCursor()
+	}
+}
+
+func (d *Device) showCursor() {
+	if d.cursor.show && !d.cursor.visible {
 		d.toggleCursor()
 	}
 }
@@ -131,17 +136,15 @@ func (d *Device) Image() image.Image {
 // So (*Device).Clear(0,0, (*Device).cols, (*Device).rows) would
 // clear the whole screen.
 func (d *Device) Clear(x1, y1, x2, y2 int) {
-	if d.attr.Reversed {
-		draw.Draw(d.Render,
-			image.Rect(x1*d.Render.cell.Dx(), y1*d.Render.cell.Dy(), x2*d.Render.cell.Dx(), y2*d.Render.cell.Dy()),
-			d.attr.Fg,
-			image.Point{},
-			draw.Src)
-	} else {
-		draw.Draw(d.Render,
-			image.Rect(x1*d.Render.cell.Dx(), y1*d.Render.cell.Dy(), x2*d.Render.cell.Dx(), y2*d.Render.cell.Dy()),
-			d.attr.Bg,
-			image.Point{},
-			draw.Src)
-	}
+	rect := image.Rect(
+		x1*d.Render.cell.Dx(), y1*d.Render.cell.Dy(),
+		x2*d.Render.cell.Dx(), y2*d.Render.cell.Dy()).
+		Add(d.Render.Bounds().Min)
+
+	draw.Draw(d.Render,
+		rect,
+		d.attr.Bg,
+		image.Point{},
+		draw.Src)
+
 }

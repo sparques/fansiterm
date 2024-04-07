@@ -1,3 +1,4 @@
+//go:build tilesetfiracodenerd
 package firacodenerd
 
 import "image"
