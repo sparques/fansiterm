@@ -12,6 +12,13 @@ import (
 // for the purposes of rendering a cursor.
 type cursorRectFunc func(image.Rectangle, image.Point) image.Rectangle
 
+var (
+	// CursorBlock, CursorBeam, and CursorUnderscore are the 3 cursor display options.
+	CursorBlock      = blockRect
+	CursorBeam       = beamRect
+	CursorUnderscore = underscoreRect
+)
+
 // cursorPt returns the location of the cursor as an image.Point
 // From perspective of viewing the rendered terminal, this is the top left corner of the cell the cursor is in.
 func (d *Device) cursorPt() image.Point {

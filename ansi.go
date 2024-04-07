@@ -11,14 +11,14 @@ import (
 	"golang.org/x/exp/constraints"
 )
 
-var ErrEscapeSequenceIncomplete = errors.New("escape sequence incomplete")
+var errEscapeSequenceIncomplete = errors.New("escape sequence incomplete")
 
 // consumeEscSequence figures out where the escape sequence in data ends.
 // It assumes data[0] == 0x1b.
 func consumeEscSequence(data []rune) (n int, err error) {
 	if len(data) < 1 {
 		// need more bytes
-		return 0, ErrEscapeSequenceIncomplete
+		return 0, errEscapeSequenceIncomplete
 	}
 	switch data[1] {
 	case 'X', ']', 'P': // SOS, OSC, and DCS
@@ -41,7 +41,7 @@ func consumeEscSequence(data []rune) (n int, err error) {
 	}
 
 	// got to here? need more data
-	return 0, ErrEscapeSequenceIncomplete
+	return 0, errEscapeSequenceIncomplete
 }
 
 // getNumericArgs beaks apart seq at ';' characters and then tries to convert

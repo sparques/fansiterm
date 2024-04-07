@@ -5,12 +5,11 @@ import (
 	"image/color"
 )
 
-// These Colors are for the 4-bit ANSI colors
-// Since they're exported, they can be overridden.
-// It would be convient to have a pallet, but given
-// TrueColor support, why bother?
-
 var (
+	// These Colors are for the 4-bit ANSI colors
+	// Since they're exported, they can be overridden.
+	// It would be convient to have a pallet, but given
+	// TrueColor support, why bother?
 	ColorBlack         = NewOpaqueColor(0, 0, 0)
 	ColorBrightBlack   = NewOpaqueColor(85, 85, 85)
 	ColorRed           = NewOpaqueColor(127, 0, 0)
@@ -302,30 +301,37 @@ type Color struct {
 	rgba color.RGBA
 }
 
+// NewOpaqueColor returns a Color that has a fully opaque alpha value.
 func NewOpaqueColor(r, g, b uint8) Color {
 	return Color{color.RGBA{r, g, b, 255}}
 }
 
+// NewColor returns a new Color.
 func NewColor(r, g, b, a uint8) Color {
 	return Color{color.RGBA{r, g, b, a}}
 }
 
+// RGBA implements color.Color
 func (c Color) RGBA() (r, g, b, a uint32) {
 	return c.rgba.RGBA()
 }
 
+// At implements image.Image
 func (c Color) At(int, int) color.Color {
 	return c.rgba
 }
 
+// Bounds implements image.Image
 func (c Color) Bounds() image.Rectangle {
 	return image.Rectangle{image.Point{-1e9, -1e9}, image.Point{1e9, 1e9}}
 }
 
+// ColorModel implements image.Image
 func (c Color) ColorModel() color.Model {
 	return c
 }
 
+// Convert (fake) implements color.Model.
 func (c Color) Convert(c2 color.Color) color.Color {
 	return c2
 }
@@ -343,5 +349,3 @@ func (c Colorizer) RGBA() (r, g, b, a uint32) {
 	v := c()
 	return uint32(v.R), uint32(v.G), uint32(v.B), uint32(v.A)
 }
-
-

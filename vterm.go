@@ -14,11 +14,9 @@ import (
 	"github.com/sparques/fansiterm/xform"
 )
 
-/*
-vterm implements a virtual terminal. It supports being io.Write()n to. It handles the cursor and processing of
-escape sequences.
-*/
-
+// Device  implements a virtual terminal. It supports being io.Write()n to. It handles the cursor and processing of
+// sequences.
+//
 //go:export
 type Device struct {
 	// BellFunc is called if it is non-null and the terminal would
@@ -80,8 +78,6 @@ type Cursor struct {
 
 type Render struct {
 	draw.Image
-	offset image.Point
-	// TODO: add bold and (maybe) italic? Could try wrapping charSet in a rotateImage(glyph, -5)?
 	charSet       tiles.Tiler
 	altCharSet    tiles.Tiler
 	boldCharSet   tiles.Tiler
@@ -93,12 +89,6 @@ type Render struct {
 	// this could be called at the end of (*Device).Write().
 	// displayFunc func()
 }
-
-const (
-	CursorBlock = iota
-	CursorBeam
-	CursorUnderscore
-)
 
 type Config struct {
 	TabSize     int
@@ -230,6 +220,14 @@ func NewWithBuf(buf draw.Image) *Device {
 	draw.Draw(buf, buf.Bounds(), image.Black, image.Point{}, draw.Src)
 
 	return New(cols, rows, buf)
+}
+
+// SetCursorStyle changes the shape of the cursor. Valid options are CursorBlock,
+// CursorBeam, and CursorUnderscore. CursorBlock is the default.
+func (d *Device) SetCursorStyle(style cursorRectFunc) {
+	d.hideCursor()
+	d.Render.cursorFunc = style
+	d.showCursor()
 }
 
 // VisualBell inverts the screen for a quarter second.
