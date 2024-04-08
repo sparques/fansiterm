@@ -13,23 +13,27 @@ The intent is for implementing a terminal on micro controllers connected to grap
 
 # Overview
 
-The (*fansiterm).Device object implements image.Image, draw.Image, and io.Writer. To push data (text) to the terminal, you simply call Write() against the Device object.
+The (*fansiterm.Device) object implements io.Writer. (*fansiterm.Device).Render implements image.Draw. To push data (text) to the terminal, you simply call Write() against the Device object.
 
-The text isn't buffered anywhere, if you need the text or want to implement more advanced features like scrolling, that's up to whatever is writing to (*fansiterm).Device. Since this is meant to.
+The text isn't buffered anywhere, if you need the text or want to implement more advanced features like scrolling, that's up to whatever is writing to (*fansiterm).Device. Incomplete escape sequences will be bufferred and it's possible to "hang" the terminal by sending an incomplete sequence and then overloading the system memory. This is inline with how actual physical dumb terminals of yore worked.
 
-If you want to push your own graphics or other operations, you can draw directly to the Device object as well, as it implements draw.Image.
+If you want to push your own graphics or other operations, you can draw directly to the (*fansiterm.Device).Render object as well, as it implements draw.Image.
 
-If Device is initialized with a nil image buffer, it allocates its own buffer. Otherwise, you can pass a draw.Image object (like what the driver for an OLED or TFT screen provides you) to it and any Write()s to the (*fansiterm).Device will be immediately rendered to the backing screen. Whether the screen buffers image data and needs to be manually blitted is screen driver dependant. So 
+If Device is initialized with a nil image buffer, it allocates its own buffer. Otherwise, you can pass a draw.Image object (like what the driver for an OLED or TFT screen provides you) to it and any Write()s to the (*fansiterm.Device) will be immediately rendered to the backing screen. Whether the screen buffers image data and needs to be manually blitted is screen driver dependant.
+
+For use with microcontrollers, you'll want to pass it the pseudo-buffer provided by the screen driver, as chances are your MCU does not have enough ram for a single frame buffer--in addition to the memory used for all the tiles and the rest of the program.
 
 # Features
 
  - Cursor styles: Block, Beam, Underscore
  - Bell is supported: a callback is provided for when the terminal receives a \a (bell character). So you could trigger a beep via a speaker and PWM or blink an LED or blink the backlight, etc.
  - Standard cursor manipulation supported.
- - Regular and Bold Font
+ - Regular, Bold, and "italic" Font (italics are reasonably faked by rotating individual tiles)
  - Underline, Double Underline, Strikethrough
+ - Several "TileSets" come built-in: inconsolata, Fira Code Nerd Mono, x3270, julia mono, and fansi
+ - Tool to generate additional tilesets from TTF fonts is included: look in tiles/ and tiles/gentileset/
  - Custom Tile loading for alternate character set (shift-out character set, commonly used for line-drawing/pseudo graphics)
- - Font is rendered using an 8-bit Alpha mask, allowing for clean blending and anti-aliased rendering of glyphs.
+ - Tiles are rendered using an 8-bit Alpha mask, allowing for clean blending and anti-aliased rendering of glyphs.
  - 4-bit (with extended codes for bright / high intensity) color; 256-Color; True Color (24 bit).
  	
 
@@ -46,15 +50,18 @@ The main purpose of this package is for use on rather low-power microcontrollers
 
 # TODO
 
- - General Clean Up (Device struct is a bit of a mess)
+ - ~General Clean Up (Device struct is a bit of a mess)~ Always more to be done, but I'm relatively happy with things now.
  - Package documentation
+ 	- Reviewing the package documentation now shows me I have far too much exported. A major to do is only have things exported if they actually need to be exported.
  - Test on real hardware
  - 1-bit color/rendering support for very-very-constrained systems
- - More configurable font / better font configuration
- 	- Permit a very stripped down minimal font to be used or alternatively allow every option: Bold, Italic, Fraktur, etc.
- - Optimize drawing/rendering routines.
+ - ~More configurable font / better font configuration~ Now using a purpose-built Tile system. 
+ 	- Better, user-oriented font config system: The means are in place, now just have to make it easy to use.
+ - ~Optimize drawing/rendering routines~ This has been greatly improved.
+ 	- Add in hardware accel / filling rectangle support (some hardware can fill rectangles more efficiently than the equivalent single-pixel-pushing)
  - Standardize / settle upon an API
- 	- The main interaction will be via io.Write(), that won't change. But things like direct manipulation of the terminal (e.g. calling (*Device).MoveCursorAbs(x,y)) are still in flux.
+ 	- Limit your interactions to the io.Write() interface.
+ - Modify gentileset utility to only dump specific ranges--currently any of the "Nerd" fonts included (Fira, x3270, and julia) use too much RAM to actually load onto an RP2040.
 
 # Future
 
@@ -67,9 +74,19 @@ I want to keep a very stripped down, barebones version of fansiterm that will wo
 The screenshot demonstrates:
   - FANSITERM is colored using inverted VGA color ( SGR CSI34;7m ) and is also bold (SGR CSI1m).
   - The trademark character (™) is present in inconsolata.Regular8x16 and rendered correctly here.
-  - On either end of FANSITERM are custom tiles, defined using 8x16 pixel PNGs and set to represent the characters '(' and ')' in the alternate chracter set (actived with the SHIFT-OUT byte, 0x0E, and deactived with SHIFT-IN byte, 0x0F).
+  - On either end of FANSITERM are custom tiles, defined using 8x16 pixel PNGs, in the fansi TileSet (fansiterm/tiles/fansi) and set to represent the characters '(' and ')' in the alternate chracter set (actived with the SHIFT-OUT byte, 0x0E, and deactived with SHIFT-IN byte, 0x0F).
   - Custom rounded-endcap tiles are used to surround 433 MHz and KHz, also via alternate chracter set (and mapped to '{' and '}').
   - The distance between 'Freq:' and '443 MHz' and 'Bandwidth:' and '005 KHz' are managed via tab characters.
-  - The gradient bar is implemented using 24-bit True Color.
+  - The gradient bar is implemented using 24-bit True Color and an on-the-fly generated gradient tile.
   - Finally, the cursor is a block style cursor. All cursor shapes are implemented by inverting the colors they land over top.
   - This is a 240x135 pixel. While 240 is evenly divisible by 8, 135 is not divisible by 16. The terminal is automatically centered. (It is a TODO item to add customizable offset).
+
+# See Also
+
+I found out about this when nearly done with this project:
+
+https://github.com/tinygo-org/tinyterm
+
+Same basic idea--tinyterm is a (tiny)go implementation of a terminal. Tinyterm is meant to be a minimal implementation to aid in troubleshooting projects. Fansiterm is meant to be the main interface / visual subsystem. 
+
+Tinyterm is specifically for tinygo, but fansiterm will work anywhere regular go will.

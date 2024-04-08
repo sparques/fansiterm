@@ -27,14 +27,16 @@ func Test_RenderScreenshot(t *testing.T) {
 		}
 	}
 	// add gradient tile to altCharSet as the '#' char
-	term.Render.altCharSet.(*tiles.FontTileSet).Glyphs['#'] = gradientTile.Pix
+	term.Render.altCharSet.(*tiles.FontTileSet).SetTile('#', gradientTile)
+
+	term.Write([]byte("\x0e\x1b[40m\x1b[38;2;65;127;0m{"))
 
 	// generate true-color gradient
-	for i := 0; i < term.cols-1; i++ {
-		term.Write([]byte(fmt.Sprintf("\x0e\x1b[48;2;65;127;%d;38;2;65;127;%dm#", (i)*256/term.cols, (i+1)*256/term.cols)))
+	for i := 0; i < term.cols-2; i++ {
+		term.Write([]byte(fmt.Sprintf("\x1b[48;2;65;127;%d;38;2;65;127;%dm#", (i)*256/term.cols, (i+1)*256/term.cols)))
 	}
 
-	term.Write([]byte(" "))
+	term.Write([]byte("\x1b[40m}"))
 
 	fh, err := os.Create("screenshot.png")
 	if err != nil {
