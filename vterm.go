@@ -353,8 +353,14 @@ func (d *Device) Write(data []byte) (n int, err error) {
 }
 
 func (d *Device) Scroll(amount int) {
-	// TODO: add some check here to see if our backing device/buffer supports scrolling
-	// TODO: come up with interface for generic scrolling 😂
+	// if the underlying iimage support Scroll(), use that
+	if scrollable, ok := d.Render.Image.(interface{ Scroll(int) }); ok {
+		scrollable.Scroll(amount)
+		// fill in scrolls section with background
+		d.Clear(0, 0, d.cols, -amount)
+		return
+	}
+
 	if amount > 0 {
 		// shift the lower portion of the image up, row by row, starting with the row
 		// that will become thew new row zero

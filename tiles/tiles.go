@@ -63,7 +63,7 @@ func (fts *FontTileSet) DrawTile(r rune, dst draw.Image, pt image.Point, fg colo
 	for x := 0; x < fts.Rectangle.Dx(); x++ {
 		for y := 0; y < fts.Rectangle.Dy(); y++ {
 			switch pix[y*fts.Dx()+x] {
-			// skip all the math for the most common values: 0xFF and 0xFF
+			// skip all the math for the most common values: 0x00 and 0xFF
 			case 0x00:
 				dst.Set(pt.X+x, pt.Y+y, bg)
 			case 0xFF:

@@ -2,6 +2,7 @@ package fansiterm
 
 import (
 	"image"
+	"image/color"
 	"image/draw"
 	_ "image/png"
 
@@ -147,6 +148,14 @@ func (d *Device) Clear(x1, y1, x2, y2 int) {
 		x1*d.Render.cell.Dx(), y1*d.Render.cell.Dy(),
 		x2*d.Render.cell.Dx(), y2*d.Render.cell.Dy()).
 		Add(d.Render.Bounds().Min)
+
+	// if underlying Image supports Fill(), use that instead
+	if fillable, ok := d.Render.Image.(interface {
+		Fill(image.Rectangle, color.Color)
+	}); ok {
+		fillable.Fill(rect, d.attr.Bg)
+		return
+	}
 
 	draw.Draw(d.Render,
 		rect,
