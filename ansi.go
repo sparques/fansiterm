@@ -337,8 +337,8 @@ func (d *Device) HandleCSISequence(seq []rune) {
 		d.cursor.prevPos[0] = d.cursor.col
 		d.cursor.prevPos[1] = d.cursor.row
 	case 'u': // restore cursor position
-		d.cursor.row = d.cursor.prevPos[0]
-		d.cursor.col = d.cursor.prevPos[1]
+		d.cursor.col = d.cursor.prevPos[0]
+		d.cursor.row = d.cursor.prevPos[1]
 	} // switch seq[len(seq)-1]
 }
 
