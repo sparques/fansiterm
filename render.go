@@ -2,11 +2,11 @@ package fansiterm
 
 import (
 	"image"
-	"image/color"
 	"image/draw"
 	_ "image/png"
 
 	"github.com/sparques/fansiterm/xform"
+	"github.com/sparques/gfx"
 )
 
 // cursorRectFunc specifies a function for generating a rectanglular region to invert,
@@ -150,9 +150,7 @@ func (d *Device) Clear(x1, y1, x2, y2 int) {
 		Add(d.Render.Bounds().Min)
 
 	// if underlying Image supports Fill(), use that instead
-	if fillable, ok := d.Render.Image.(interface {
-		Fill(image.Rectangle, color.Color)
-	}); ok {
+	if fillable, ok := d.Render.Image.(gfx.Filler); ok {
 		fillable.Fill(rect, d.attr.Bg)
 		return
 	}
