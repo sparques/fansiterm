@@ -2,16 +2,19 @@ package fansiterm
 
 import (
 	"bytes"
+	"fmt"
 	"image"
 	"image/draw"
 	"io"
 	"slices"
+	"sync"
 	"time"
 
 	"github.com/sparques/fansiterm/tiles"
 	"github.com/sparques/fansiterm/tiles/fansi"
 	"github.com/sparques/fansiterm/tiles/inconsolata"
 	"github.com/sparques/fansiterm/xform"
+	"github.com/sparques/gfx"
 )
 
 // Device  implements a virtual terminal. It supports being io.Write()n to. It handles the cursor and processing of
@@ -58,6 +61,8 @@ type Device struct {
 	// Default is io.Discard. Setting to nil will cause Escape Sequences that
 	// write a response to panic.
 	Output io.Writer
+
+	sync.Mutex
 }
 
 // Cursor is used to track the cursor.
@@ -272,6 +277,9 @@ func isFinal(r rune) bool {
 // Writes are more or less unbuffered with the exception of escape sequences. If a partial escape sequence
 // is written to Device, the beginning will be bufferred and prepended to the next write.
 func (d *Device) Write(data []byte) (n int, err error) {
+	d.Lock()
+	defer d.Unlock()
+
 	runes := bytes.Runes(data)
 
 	// first un-invert cursor (if we're showing it)
@@ -354,10 +362,11 @@ func (d *Device) Write(data []byte) (n int, err error) {
 
 func (d *Device) Scroll(amount int) {
 	// if the underlying iimage support Scroll(), use that
-	if scrollable, ok := d.Render.Image.(interface{ Scroll(int) }); ok {
-		scrollable.Scroll(amount)
+	if scrollable, ok := d.Render.Image.(gfx.Scroller); ok {
+		fmt.Println("yes, using scroller interface")
+		scrollable.Scroll(amount * d.Render.cell.Dy())
 		// fill in scrolls section with background
-		d.Clear(0, 0, d.cols, -amount)
+		d.Clear(0, d.rows-amount, d.cols, d.rows)
 		return
 	}
 
