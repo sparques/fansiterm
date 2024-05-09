@@ -92,7 +92,7 @@ type Render struct {
 	cursorFunc    cursorRectFunc
 	// Some displays require a flush / blit / sync call
 	// this could be called at the end of (*Device).Write().
-	// displayFunc func()
+	DisplayFunc func()
 }
 
 type Config struct {
@@ -356,6 +356,10 @@ func (d *Device) Write(data []byte) (n int, err error) {
 
 	// finally, update cursor, if needed
 	d.showCursor()
+
+	if d.Render.DisplayFunc != nil {
+		d.Render.DisplayFunc()
+	}
 
 	return len(data), nil
 }
