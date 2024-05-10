@@ -1,3 +1,5 @@
+//go:build tilesetx3270
+
 package x3270
 
 import (
