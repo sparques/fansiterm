@@ -136,6 +136,38 @@ func (ts TileSet) DrawTile(r rune, dst draw.Image, pt image.Point, fg color.Colo
 	drawTile(dst, pt, ts[r], fg, bg)
 }
 
+type FullColorTileSet TileSet
+
+func (fc FullColorTileSet) DrawTile(r rune, dst draw.Image, pt image.Point, fg color.Color, bg color.Color) {
+	src, ok := fc[r]
+	if !ok {
+		return
+	}
+
+	// first draw bg color then
+	// image.Draw(dst, src.Bounds().Add(pt), src, src.Bounds().Min(), draw.Over)
+	// image.Draw(dst, src.Bounds().Add(pt), src, src.Bounds().Min(), draw.Over)
+
+	// Would it be better if I used draw.Draw here instead??
+	for x := 0; x < src.Bounds().Dx(); x++ {
+		for y := 0; y < src.Bounds().Dy(); y++ {
+			r, g, b, alpha := src.At(x+src.Bounds().Min.X, y+src.Bounds().Min.Y).RGBA()
+			switch alpha {
+			case 0x00:
+				dst.Set(pt.X+x, pt.Y+y, bg)
+			default:
+				bgr, bgg, bgb, _ := bg.RGBA()
+				dst.Set(pt.X+x, pt.Y+y,
+					color.RGBA{
+						alphaBlend(bgr, r, alpha),
+						alphaBlend(bgg, g, alpha),
+						alphaBlend(bgb, b, alpha),
+						255})
+			}
+		}
+	}
+}
+
 // Italics wraps a TileSet, adding a 10 degree rotation to each character to
 // kinda sorta halfway fake an italic character set. Also makes your text-based
 // drawings look drunk.

@@ -8,7 +8,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/sparques/fansiterm/tiles"
+	"github.com/sparques/fansiterm/tiles/fansi"
 )
 
 func Test_RenderScreenshot(t *testing.T) {
@@ -27,7 +27,7 @@ func Test_RenderScreenshot(t *testing.T) {
 		}
 	}
 	// add gradient tile to altCharSet as the '#' char
-	term.Render.altCharSet.(*tiles.FontTileSet).SetTile('#', gradientTile)
+	fansi.AltCharSet.SetTile('#', gradientTile)
 
 	term.Write([]byte("\x0e\x1b[40m\x1b[38;2;65;127;0m{"))
 

@@ -227,6 +227,33 @@ func NewWithBuf(buf draw.Image) *Device {
 	return New(cols, rows, buf)
 }
 
+func (d *Device) HandleResize() {
+	cols := d.Render.Bounds().Dx() / d.Render.cell.Dx()
+	rows := d.Render.Bounds().Dy() / d.Render.cell.Dy()
+
+	//draw.Draw(buf, buf.Bounds(), image.Black, image.Point{}, draw.Src)
+
+	d.cols = cols
+	d.rows = rows
+
+	offset := image.Pt((d.Render.Bounds().Dx()%d.Render.cell.Dx())/2, (d.Render.Bounds().Dy()%d.Render.cell.Dy())/2)
+
+	if !(offset.X == 0 && offset.Y == 0) {
+		// first save a copy
+		orig := image.NewRGBA(d.Render.Bounds())
+		draw.Draw(orig, orig.Bounds(), d.Render.Image, orig.Bounds().Min, draw.Src)
+
+		// clear whole thing
+		draw.Draw(d.Render, d.Render.Bounds(), d.attr.Bg, d.Render.Bounds().Min, draw.Src)
+
+		// Setup the offset
+		d.Render.Image = xform.SubImage(d.Render.Image, image.Rect(0, 0, cols*d.Render.cell.Dx(), rows*d.Render.cell.Dy()).Add(offset))
+
+		// write copy to offset-image
+		draw.Draw(d.Render, d.Render.Bounds(), orig, orig.Bounds().Min, draw.Src)
+	}
+}
+
 // SetCursorStyle changes the shape of the cursor. Valid options are CursorBlock,
 // CursorBeam, and CursorUnderscore. CursorBlock is the default.
 func (d *Device) SetCursorStyle(style cursorRectFunc) {
