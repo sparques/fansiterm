@@ -16,7 +16,7 @@ var errEscapeSequenceIncomplete = errors.New("escape sequence incomplete")
 // consumeEscSequence figures out where the escape sequence in data ends.
 // It assumes data[0] == 0x1b.
 func consumeEscSequence(data []rune) (n int, err error) {
-	if len(data) < 1 {
+	if len(data) < 2 {
 		// need more bytes
 		return 0, errEscapeSequenceIncomplete
 	}
