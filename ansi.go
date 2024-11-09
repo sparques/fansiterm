@@ -25,7 +25,7 @@ func consumeEscSequence(data []rune) (n int, err error) {
 		// For Start of String, Operating System Command, and Device Control String, read
 		// until we encounter String Terminator, ESC\
 		for n = 1; n < len(data); n++ {
-			if data[n] == '\b' || (data[n-1] == 0x1b && data[n] == '\\') {
+			if data[n] == '\a' || (data[n-1] == 0x1b && data[n] == '\\') {
 				return n + 1, nil
 			}
 		}
