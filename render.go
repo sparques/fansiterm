@@ -160,5 +160,18 @@ func (d *Device) Clear(x1, y1, x2, y2 int) {
 		d.attr.Bg,
 		image.Point{},
 		draw.Src)
+}
 
+func (d *Device) clearAll() {
+	// if underlying Image supports Fill(), use that instead
+	if fillable, ok := d.Render.Image.(gfx.Filler); ok {
+		fillable.Fill(d.Render.Bounds(), d.attr.Bg)
+		return
+	}
+
+	draw.Draw(d.Render,
+		d.Render.Bounds(),
+		d.attr.Bg,
+		image.Point{},
+		draw.Src)
 }

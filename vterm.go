@@ -2,7 +2,6 @@ package fansiterm
 
 import (
 	"bytes"
-	"fmt"
 	"image"
 	"image/draw"
 	"io"
@@ -142,7 +141,7 @@ func New(cols, rows int, buf draw.Image) *Device {
 
 	draw.Draw(buf, buf.Bounds(), image.Black, image.Point{}, draw.Src)
 
-	return &Device{
+	d := &Device{
 		cols: cols,
 		rows: rows,
 		attr: AttrDefault,
@@ -163,6 +162,8 @@ func New(cols, rows int, buf draw.Image) *Device {
 		Output:      io.Discard,
 		Properties:  make(map[Property]string),
 	}
+
+	return d
 }
 
 // NewAtResolution is like New, but rather than specifying the columns and rows,
@@ -299,10 +300,11 @@ func isFinal(r rune) bool {
 	return r >= 0x40
 }
 
-// Write implements io.Write and is the main way to interract with with (*fansiterm).Device. This is
+// Write implements io.Write and is the main way to interract with a (*fansiterm).Device. This is
 // essentially writing to the "terminal."
 // Writes are more or less unbuffered with the exception of escape sequences. If a partial escape sequence
 // is written to Device, the beginning will be bufferred and prepended to the next write.
+// Certain broken escape sequence can potentially block forever.
 func (d *Device) Write(data []byte) (n int, err error) {
 	d.Lock()
 	defer d.Unlock()
@@ -360,6 +362,15 @@ func (d *Device) Write(data []byte) (n int, err error) {
 			// render these with RenderRunes
 			// increment cursor; increment i
 
+			// doing the column overflow to new row check here gets us the correct behavior
+			// where we can put a character into the last column and we do not scroll/move the cursor to
+			// the next row until we have a character to put there.
+			if d.cursor.col >= d.cols {
+				d.cursor.col = 0
+				d.cursor.row++
+			}
+			d.ScrollToCursor()
+
 			// Originally I did this with strings.IndexFunc(string(runes[i:]), isControl)
 			// however this seems to return the byte offset rather than the rune offset
 			endIdx = slices.IndexFunc(runes[i:], isControl)
@@ -371,13 +382,8 @@ func (d *Device) Write(data []byte) (n int, err error) {
 			d.RenderRunes(runes[i : i+endIdx])
 
 			d.cursor.col += endIdx
-			if d.cursor.col >= d.cols {
-				d.cursor.col = 0
-				d.cursor.row++
-			}
 
 			i += endIdx - 1
-			d.ScrollToCursor()
 		}
 	}
 
@@ -391,10 +397,11 @@ func (d *Device) Write(data []byte) (n int, err error) {
 	return len(data), nil
 }
 
+// func (d *Device) softScroll(amount int) {
 func (d *Device) Scroll(amount int) {
-	// if the underlying iimage support Scroll(), use that
+
+	// if the underlying image supports Scroll(), use that
 	if scrollable, ok := d.Render.Image.(gfx.Scroller); ok {
-		fmt.Println("yes, using scroller interface")
 		scrollable.Scroll(amount * d.Render.cell.Dy())
 		// fill in scrolls section with background
 		d.Clear(0, d.rows-amount, d.cols, d.rows)

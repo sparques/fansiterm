@@ -13,6 +13,8 @@ import (
 
 var errEscapeSequenceIncomplete = errors.New("escape sequence incomplete")
 
+var ShowUnhandled bool
+
 // consumeEscSequence figures out where the escape sequence in data ends.
 // It assumes data[0] == 0x1b.
 func consumeEscSequence(data []rune) (n int, err error) {
@@ -66,10 +68,19 @@ func bound[N constraints.Integer](x, minimum, maximum N) N {
 // a panic.
 func (d *Device) HandleEscSequence(seq []rune) {
 	switch seq[1] {
+	case 'c': // reset
+		d.attrDefault = AttrDefault
+		d.Render.useAltCharSet = false
+		d.clearAll()
+		d.MoveCursorAbs(0, 0)
 	case '[':
 		d.HandleCSISequence(seq[2:])
 	case ']':
 		d.HandleOSCSequence(seq[2:])
+	default:
+		if ShowUnhandled {
+			fmt.Println("Unhandle ESC:", seqString(seq))
+		}
 	}
 }
 
@@ -86,11 +97,21 @@ func trimST(seq []rune) []rune {
 
 func (d *Device) HandleOSCSequence(seq []rune) {
 	seq = trimST(seq)
+	if len(seq) == 0 {
+		// what does an empty OSC sequence mean?
+		// Doing nothing seems safe...
+		return
+	}
 	args := getNumericArgs(seq, 0)
 	switch args[0] {
 	case 0:
 		// xterm set window title
 		d.Properties[PropertyWindowTitle] = string(seq[2:])
+
+	default:
+		if ShowUnhandled {
+			fmt.Println("Unhandle OSC:", seqString(seq))
+		}
 	}
 }
 
@@ -171,6 +192,12 @@ func (d *Device) HandleCSISequence(seq []rune) {
 			// clear whole line
 			d.Clear(0, d.cursor.row, d.cols, d.cursor.row+1)
 		}
+	case 'P': // DCH Delete Character. Delete character(s) to the right of the cursor
+		//args = getNumericArgs(seq[:len(seq)-1], 1)
+		// We don't actually track what characters have been typed; we don't support text handling of any kind
+		// So this hack of just clearing the whole line to the right of the cursor will have to do.
+		// Seems like it works okay so far
+		d.Clear(d.cursor.col, d.cursor.row, d.cols, d.cursor.row+1)
 	case 'S': // Scroll whole page up by n (default 1) lines. New lines are added at the bottom.
 		if len(args) == 1 {
 			d.Scroll(args[0])
@@ -179,6 +206,9 @@ func (d *Device) HandleCSISequence(seq []rune) {
 		if len(args) == 1 {
 			d.Scroll(args[0])
 		}
+	case 'c': // DA Device Attributes
+		// Lie and say we're a vt100
+		fmt.Fprintf(d.Output, "\x1b[?1;2c")
 	case 'm': // CoLoRs!1!! AKA SGR (Select Graphic Rendition)
 		args := getNumericArgs(seq[:len(seq)-1], 0)
 		for i := 0; i < len(args); i++ {
@@ -339,6 +369,10 @@ func (d *Device) HandleCSISequence(seq []rune) {
 	case 'u': // restore cursor position
 		d.cursor.col = d.cursor.prevPos[0]
 		d.cursor.row = d.cursor.prevPos[1]
+	default:
+		if ShowUnhandled {
+			fmt.Println("Unhandle CSI:", seqString(seq))
+		}
 	} // switch seq[len(seq)-1]
 }
 
@@ -359,4 +393,15 @@ func getRGB(args []int) (r, g, b uint8) {
 		r = uint8(args[0])
 	}
 	return
+}
+
+func seqString(seq []rune) string {
+	return strings.Map(func(in rune) rune {
+		switch in {
+		case 0x1b:
+			return '⇺'
+		default:
+			return in
+		}
+	}, string(seq))
 }
