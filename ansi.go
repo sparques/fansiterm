@@ -37,6 +37,10 @@ func consumeEscSequence(data []rune) (n int, err error) {
 				return n + 1, nil
 			}
 		}
+	case '(':
+		// ESC(0 for line drawing
+		// ESC(B for regular
+		return 3, nil
 	default:
 		// Unsupported escape sequence, just skip it?
 		return 2, nil
@@ -77,6 +81,8 @@ func (d *Device) HandleEscSequence(seq []rune) {
 		d.HandleCSISequence(seq[2:])
 	case ']':
 		d.HandleOSCSequence(seq[2:])
+	//case '(':
+
 	default:
 		if ShowUnhandled {
 			fmt.Println("Unhandle ESC:", seqString(seq))
@@ -116,11 +122,11 @@ func (d *Device) HandleOSCSequence(seq []rune) {
 }
 
 func (d *Device) HandleCSISequence(seq []rune) {
-	// last byte of seq tells us what function we're doing
 	if len(seq) == 0 {
 		return
 	}
 	args := getNumericArgs(seq[:len(seq)-1], 1)
+	// last byte of seq tells us what function we're doing
 	switch seq[len(seq)-1] {
 	case 'A': // Cursor Up, one optional numeric arg, default 1
 		if len(args) == 1 {
@@ -209,6 +215,9 @@ func (d *Device) HandleCSISequence(seq []rune) {
 	case 'c': // DA Device Attributes
 		// Lie and say we're a vt100
 		fmt.Fprintf(d.Output, "\x1b[?1;2c")
+	case 'd': // CSI n d: Mover cursor to line n
+		args = getNumericArgs(seq[:len(seq)-1], 0)
+		d.cursor.row = bound(args[0]-1, 0, d.rows)
 	case 'm': // CoLoRs!1!! AKA SGR (Select Graphic Rendition)
 		args := getNumericArgs(seq[:len(seq)-1], 0)
 		for i := 0; i < len(args); i++ {
