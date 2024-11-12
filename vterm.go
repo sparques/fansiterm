@@ -349,7 +349,10 @@ func (d *Device) Write(data []byte) (n int, err error) {
 		case '\n': // linefeed
 			d.cursor.row++
 			d.cursor.col = 0
-			d.ScrollToCursor()
+			if d.cursor.row >= d.scrollRegion[1] || d.cursor.row > d.rows {
+				d.cursor.row = d.scrollRegion[1] - 1
+				d.Scroll(1)
+			}
 		case 0x0E: // shift out (use alt character set)
 			d.Render.useAltCharSet = true
 		case 0x0F: // shift in (use regular char set)
