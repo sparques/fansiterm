@@ -11,3 +11,7 @@ require (
 	golang.org/x/sys v0.22.0 // indirect
 	golang.org/x/term v0.22.0 // indirect
 )
+
+replace (
+	github.com/sparques/gfx => /home/sparques/projects/gfx
+)

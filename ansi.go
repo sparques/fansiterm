@@ -5,6 +5,7 @@ package fansiterm
 import (
 	"errors"
 	"fmt"
+	"image"
 	"strconv"
 	"strings"
 
@@ -37,7 +38,11 @@ func consumeEscSequence(data []rune) (n int, err error) {
 				return n + 1, nil
 			}
 		}
+		return 0, errEscapeSequenceIncomplete
 	case '(':
+		if len(data) < 3 {
+			return 0, errEscapeSequenceIncomplete
+		}
 		// ESC(0 for line drawing
 		// ESC(B for regular
 		return 3, nil
@@ -71,21 +76,29 @@ func bound[N constraints.Integer](x, minimum, maximum N) N {
 // sequence. Bounds are not checked so an incomplete sequence will cause
 // a panic.
 func (d *Device) HandleEscSequence(seq []rune) {
+	//fmt.Println(seqString(seq))
 	switch seq[1] {
 	case 'c': // reset
 		d.attrDefault = AttrDefault
 		d.Render.useAltCharSet = false
 		d.clearAll()
 		d.MoveCursorAbs(0, 0)
+		d.scrollArea = image.Rectangle{}
 	case '[':
 		d.HandleCSISequence(seq[2:])
 	case ']':
 		d.HandleOSCSequence(seq[2:])
-	//case '(':
-
+	case 'M': // scroll up one?
+		d.Scroll(-1)
+	case '(': // line drawing mode switching
+		fallthrough
+	case '>': // auxilary keypad numeric mode
+		fallthrough
+	case '=': // auxilary keypad application mode
+		fallthrough
 	default:
 		if ShowUnhandled {
-			fmt.Println("Unhandle ESC:", seqString(seq))
+			fmt.Println("Unhandled ESC:", seqString(seq))
 		}
 	}
 }
@@ -116,7 +129,7 @@ func (d *Device) HandleOSCSequence(seq []rune) {
 
 	default:
 		if ShowUnhandled {
-			fmt.Println("Unhandle OSC:", seqString(seq))
+			fmt.Println("Unhandled OSC:", seqString(seq))
 		}
 	}
 }
@@ -198,6 +211,26 @@ func (d *Device) HandleCSISequence(seq []rune) {
 			// clear whole line
 			d.Clear(0, d.cursor.row, d.cols, d.cursor.row+1)
 		}
+	case 'L': // Insert Lines
+		// save scrollRegion, scrollArea
+		r, a := d.scrollRegion, d.scrollArea
+		// set scrollRegion to be between cursor and old region's bottom
+		d.setScrollRegion(d.cursor.row+1, d.scrollRegion[1]+1)
+		// shift down
+		d.Scroll(-args[0])
+		// clear new lines
+		// d.Clear(0, d.scrollRegion[0], d.cols, d.scrollRegion[1]-args[0])
+		// restore
+		d.scrollRegion, d.scrollArea = r, a
+	case 'M': // Delete Line
+		// save scrollRegion, scrollArea
+		r, a := d.scrollRegion, d.scrollArea
+		// set scrollRegion to be between cursor and old region's bottom
+		d.setScrollRegion(d.cursor.row+1, d.scrollRegion[1]+1)
+		d.Scroll(args[0])
+		// d.Clear(0, d.scrollRegion[1]-args[0], d.cols, d.scrollRegion[1])
+		// restore
+		d.scrollRegion, d.scrollArea = r, a
 	case 'P': // DCH Delete Character. Delete character(s) to the right of the cursor
 		//args = getNumericArgs(seq[:len(seq)-1], 1)
 		// We don't actually track what characters have been typed; we don't support text handling of any kind
@@ -352,10 +385,15 @@ func (d *Device) HandleCSISequence(seq []rune) {
 		}
 	case 'n': // DSR - Device Status Report
 		// args -
-		// '5' just returns OK
+		// '5' just returns CSI 0 n
 		// '6' return cursor location
 		// Just assume we were passed 6
-		fmt.Fprintf(d.Output, "\x1b[%d;%dR", d.cursor.row+1, d.cursor.col+1)
+		switch args[0] {
+		case 5:
+			d.Output.Write([]byte{0x1b, '[', '0', 'n'})
+		case 6:
+			fmt.Fprintf(d.Output, "\x1b[%d;%dR", d.cursor.row+1, d.cursor.col+1)
+		}
 	case 'l', 'h': // on/off extensions
 		if seq[0] != '?' || len(seq) < 2 {
 			return
@@ -372,15 +410,27 @@ func (d *Device) HandleCSISequence(seq []rune) {
 				d.cursor.show = true
 			}
 		}
+	case 'r': // set scroll region
+		if len(args) != 2 {
+			return
+		}
+		d.setScrollRegion(args[0], args[1])
 	case 's': // save cursor position
 		d.cursor.prevPos[0] = d.cursor.col
 		d.cursor.prevPos[1] = d.cursor.row
+	case 't':
+		switch args[0] {
+		case 18: // report terminal size in cells
+			fmt.Fprintf(d.Output, "\x1b[8;%d:%dt", d.rows, d.cols)
+		case 19: // report terminal size in pixels
+			fmt.Fprintf(d.Output, "\x1b[9;%d;%dt", d.Render.Image.Bounds().Dy(), d.Render.Image.Bounds().Dx())
+		}
 	case 'u': // restore cursor position
 		d.cursor.col = d.cursor.prevPos[0]
 		d.cursor.row = d.cursor.prevPos[1]
 	default:
 		if ShowUnhandled {
-			fmt.Println("Unhandle CSI:", seqString(seq))
+			fmt.Println("Unhandled CSI:", seqString(seq))
 		}
 	} // switch seq[len(seq)-1]
 }

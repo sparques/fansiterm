@@ -44,10 +44,16 @@ type Device struct {
 	// attrDefault is used when attr is zero-value or nil
 	attrDefault Attr
 
+	// scrollRegion defines what part of the screen should scroll
+	// by default it is an empty image.Rectangle which means scroll
+	// the whole screen.
+	scrollArea   image.Rectangle
+	scrollRegion [2]int
+
 	// Render collects together all the graphical rendering fields.
 	Render Render
 
-	// inputBuf buffers chracters between call writes. This is exclusively used to
+	// inputBuf buffers chracters between write calls. This is exclusively used to
 	// buffer incomplete escape sequences.
 	inputBuf []rune
 
@@ -157,10 +163,11 @@ func New(cols, rows int, buf draw.Image) *Device {
 		cursor: Cursor{
 			show: true,
 		},
-		attrDefault: AttrDefault,
-		Config:      ConfigDefault,
-		Output:      io.Discard,
-		Properties:  make(map[Property]string),
+		attrDefault:  AttrDefault,
+		Config:       ConfigDefault,
+		Output:       io.Discard,
+		Properties:   make(map[Property]string),
+		scrollRegion: [2]int{0, rows},
 	}
 
 	return d
@@ -266,7 +273,7 @@ func (d *Device) SetCursorStyle(style cursorRectFunc) {
 // VisualBell inverts the screen for a quarter second.
 func (d *Device) VisualBell() {
 	draw.Draw(d.Render, d.Render.Bounds(), xform.InvertColors(d.Render), image.Point{}, draw.Src)
-	time.Sleep(time.Second / 4)
+	time.Sleep(time.Second / 10)
 	draw.Draw(d.Render, d.Render.Bounds(), xform.InvertColors(d.Render), image.Point{}, draw.Src)
 }
 
@@ -365,11 +372,18 @@ func (d *Device) Write(data []byte) (n int, err error) {
 			// doing the column overflow to new row check here gets us the correct behavior
 			// where we can put a character into the last column and we do not scroll/move the cursor to
 			// the next row until we have a character to put there.
+
 			if d.cursor.col >= d.cols {
 				d.cursor.col = 0
 				d.cursor.row++
+				// only scroll if we've wandered into the exact line after our scrollRegion
+				if d.cursor.row == d.scrollRegion[1] || d.cursor.row > d.rows {
+					d.cursor.row = d.scrollRegion[1] - 1
+					d.Scroll(1)
+				}
 			}
-			d.ScrollToCursor()
+
+			//d.ScrollToCursor()
 
 			// Originally I did this with strings.IndexFunc(string(runes[i:]), isControl)
 			// however this seems to return the byte offset rather than the rune offset
@@ -398,50 +412,70 @@ func (d *Device) Write(data []byte) (n int, err error) {
 }
 
 // func (d *Device) softScroll(amount int) {
-func (d *Device) Scroll(amount int) {
+func (d *Device) Scroll(rowAmount int) {
 
-	// if the underlying image supports Scroll(), use that
-	if scrollable, ok := d.Render.Image.(gfx.Scroller); ok {
-		scrollable.Scroll(amount * d.Render.cell.Dy())
+	// scrollArea Empty means scroll the whole screen--we can use more efficient algos for that
+	if d.scrollArea.Empty() {
+
+		// if the underlying image supports Scroll(), use that
+		if scrollable, ok := d.Render.Image.(gfx.Scroller); ok {
+			scrollable.Scroll(rowAmount * d.Render.cell.Dy())
+		} else {
+			// use softscroll
+			// probably adding a bug here related to xform.Translate
+			softRegionScroll(d.Render.Image, d.Render.Image.Bounds(), rowAmount*d.Render.cell.Dy())
+		}
+
 		// fill in scrolls section with background
-		d.Clear(0, d.rows-amount, d.cols, d.rows)
+		if rowAmount > 0 {
+			d.Clear(0, d.rows-rowAmount, d.cols, d.rows)
+		} else {
+			d.Clear(0, 0, d.cols, -rowAmount)
+		}
+
 		return
 	}
 
+	// scrollArea is set; must scroll a subsection
+	if scrollable, ok := d.Render.Image.(gfx.RegionScroller); ok {
+		scrollable.RegionScroll(d.scrollArea, rowAmount*d.Render.cell.Dy())
+	} else {
+		// underlaying image doesn't support gfx.RegionScroller; use softRegionScroll
+		softRegionScroll(d.Render.Image, d.scrollArea, rowAmount*d.Render.cell.Dy())
+	}
+
+	// fill in scrolls section with background
+	if rowAmount > 0 {
+		d.Clear(0, d.scrollRegion[1]-rowAmount+1, d.cols, d.scrollRegion[1]+1)
+	} else {
+		d.Clear(0, d.scrollRegion[0], d.cols, d.scrollRegion[0]-rowAmount)
+	}
+}
+
+// should probably move to gfx package
+func softRegionScroll(img draw.Image, region image.Rectangle, amount int) {
+	region = img.Bounds().Intersect(region)
+	if region.Empty() || amount == 0 {
+		return
+	}
+	// if amount is positive or negative, copy lines forwards or backwards
+
+	// positive scrolling
 	if amount > 0 {
-		// shift the lower portion of the image up, row by row, starting with the row
-		// that will become thew new row zero
-		for y := (amount) * d.Render.cell.Dy(); y <= d.Render.cell.Dy()*(d.rows); y++ {
-			for x := d.Render.Bounds().Min.X; x <= d.Render.Bounds().Max.X; x++ {
-				// if y+-amount*d.Render.cell.Max.Y > d.Render.Bounds().Dy() {
-				// 	continue
-				// }
-				d.Render.Image.Set(x, y-amount*d.Render.cell.Dy()+d.Render.Bounds().Min.Y,
-					d.Render.Image.At(x, y+d.Render.Bounds().Min.Y),
-				)
+		for y := region.Min.Y; y < (region.Max.Y - amount); y++ {
+			for x := region.Min.X; x < region.Max.X; x++ {
+				img.Set(x, y, img.At(x, y+amount))
 			}
 		}
-		// fill in the lower portion with Bg
-		d.Clear(0, d.rows-amount, d.cols, d.rows)
 		return
 	}
 
 	// negative scrolling
-	// shift the upper portion of the image down, pixel line-by-line, starting from bottom
-	// use d.Render.cell.Dy() * d.rows instead of d.Render.Bounds().Dy() because if we're using
-	// a draw.Image that's wrapped in an imageTranslate, we'll scroll pixes outside our render-area.
-	for y := d.Render.cell.Dy()*d.rows + (amount)*d.Render.cell.Dy(); y > 0; y-- {
-		for x := d.Render.Bounds().Min.X; x <= d.Render.Bounds().Max.X; x++ {
-			if y+-amount*d.Render.cell.Max.Y > d.Render.Bounds().Dy() {
-				continue
-			}
-			d.Render.Image.Set(x, y+-amount*d.Render.cell.Max.Y,
-				d.Render.Image.At(x, y),
-			)
+	for y := region.Max.Y - 1; y >= (region.Min.Y - amount); y-- {
+		for x := region.Min.X; x < region.Max.X; x++ {
+			img.Set(x, y, img.At(x, y+amount))
 		}
 	}
-	// fill in scrolls section with background
-	d.Clear(0, 0, d.cols, -amount)
 }
 
 // ColsRemaining returns how many columns are remaining until EOL
@@ -466,9 +500,30 @@ func (d *Device) ScrollToCursor() {
 		d.cursor.row++
 	}
 	// this is the more common scenario
-	if d.cursor.row >= d.rows {
-		d.cursor.col = 0
-		d.cursor.row = d.rows - 1
+	if d.cursor.row > d.scrollRegion[1] || d.cursor.row > d.rows {
+		//d.cursor.col = 0
+		d.cursor.row = d.scrollRegion[1] - 1
 		d.Scroll(1)
+	}
+}
+
+func (d *Device) setScrollRegion(start, end int) {
+	d.scrollArea.Min.X = d.Render.Image.Bounds().Min.X
+	d.scrollArea.Max.X = d.Render.Image.Bounds().Max.X
+
+	d.scrollRegion[0] = bound((start - 1), 0, d.rows)
+	d.scrollRegion[1] = bound((end - 1), 0, d.rows)
+
+	d.scrollArea.Min.Y = d.scrollRegion[0] * d.Render.cell.Dy()
+	// + 1 because internally we are 0-indexed, but ANSI escape codes are 1-indexed
+	// + another 1 because we want the bottom of the nth cell, not the top
+	d.scrollArea.Max.Y = (d.scrollRegion[1] + 1) * d.Render.cell.Dy()
+
+	//draw.Draw(d.Render, d.scrollArea, xform.InvertColors(d.Render), d.scrollArea.Min, draw.Src)
+
+	// if you mess up setting the scroll area, just forget the whole thing.
+	if (start == 0 && end == 0) || start >= end || d.scrollArea.Eq(d.Render.Bounds()) {
+		d.scrollArea = image.Rectangle{}
+		d.scrollRegion = [2]int{0, d.rows}
 	}
 }

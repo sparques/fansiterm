@@ -46,7 +46,8 @@ The main purpose of this package is for use on rather low-power microcontrollers
   - Resizable Text
     - Right now, the pre-rendered inconsolata.Regular8x16 and inconsolata.Bold8x16 are used.
     - It's possible to use basicfont.Regular7x13, but you have to give up bold support.
-  - Hardware acceleration. Fansiterm remains aganostic of what it's rendering to and thus can't take advantage of any double-buffers or hardware-cursors _on its own_. Backwards compatible PRs to improve hardware support / hardware acceleration are very much welcome.
+  - ~Hardware acceleration~. Fansiterm remains aganostic of what it's rendering to and thus can't take advantage of any double-buffers or hardware-cursors _on its own_. Backwards compatible PRs to improve hardware support / hardware acceleration are very much welcome.
+    - Okay, I lied a little bit. By using the interfaces from github.com/sparques/gfx, like Filler, Scroller, and RegionScroller, we can get "hardware acceleration." It's not really hardware acceleration, but when the underlaying device can use more efficient algorithms (for example, sending a specific "Fill" command to the display, or even just manipulating video memory directly) you can get much improved performance. Using hte pure-Go software implementation of Scroll and Fill, it took an arbitrary amount of lines over two minutes to render. With the Scroller and Fill interfaces supported, that same amount of lines takes slightly more than 2 seconds. (And a "real" Terminal emulator takes about 0.03 seconds. Fansi don't mean fast.)
 
 # TODO
 
