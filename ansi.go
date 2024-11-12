@@ -185,7 +185,7 @@ func (d *Device) HandleCSISequence(seq []rune) {
 		switch args[0] {
 		case 0:
 			// clear from cursor to EOL
-			d.Clear(d.cursor.col+1, d.cursor.row, d.cols, d.cursor.row+1)
+			d.Clear(d.cursor.col, d.cursor.row, d.cols, d.cursor.row+1)
 			// clear area below cursor
 			d.Clear(0, d.cursor.row+1, d.cols, d.rows)
 		case 1:
