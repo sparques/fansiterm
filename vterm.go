@@ -5,7 +5,6 @@ import (
 	"image"
 	"image/draw"
 	"io"
-	"slices"
 	"sync"
 	"time"
 
@@ -16,7 +15,7 @@ import (
 	"github.com/sparques/gfx"
 )
 
-// Device  implements a virtual terminal. It supports being io.Write()n to. It handles the cursor and processing of
+// Device implements a virtual terminal. It supports being io.Write()n to. It handles the cursor and processing of
 // sequences.
 //
 //go:export
@@ -316,20 +315,26 @@ func (d *Device) Write(data []byte) (n int, err error) {
 	d.Lock()
 	defer d.Unlock()
 
+	if d.Render.DisplayFunc != nil {
+		defer d.Render.DisplayFunc()
+	}
+
 	runes := bytes.Runes(data)
 
 	// first un-invert cursor (if we're showing it)
 	if d.cursor.visible {
 		d.toggleCursor()
 	}
+	defer d.showCursor()
 
 	if len(d.inputBuf) != 0 {
 		runes = append(d.inputBuf, runes...)
 		d.inputBuf = []rune{}
 	}
 
-	var endIdx int
+	// var endIdx int
 	for i := 0; i < len(runes); i++ {
+		// fmt.Println(seqString(runes[i:]))
 		switch runes[i] {
 		case '\a': // bell
 			if d.BellFunc != nil {
@@ -376,53 +381,64 @@ func (d *Device) Write(data []byte) (n int, err error) {
 			// where we can put a character into the last column and we do not scroll/move the cursor to
 			// the next row until we have a character to put there.
 
-			if d.cursor.col >= d.cols {
+			// I put a lot of work into making this routine process/render more than a single character at
+			// a time. Just made sense that that would be faster and more efficient. Empirical testing says
+			// otherwise. Single character at a time is much simpler to code and as fast if not faster
+			// than grouping printing characters together. I have no damn idea.
+
+			if d.cursor.col == d.cols {
 				d.cursor.col = 0
-				d.cursor.row++
+				if d.cursor.row == d.scrollRegion[1]-1 {
+					d.Scroll(1)
+				} else {
+					d.cursor.row++
+				}
+			}
+			d.RenderRunes(runes[i : i+1])
+			d.cursor.col++
+
+			/*
+				if d.cursor.col >= d.cols {
+					d.cursor.col = 0
+					d.cursor.row++
+				}
 				// only scroll if we've wandered into the exact line after our scrollRegion
 				if d.cursor.row == d.scrollRegion[1] || d.cursor.row > d.rows {
+					fmt.Println("Overflow scroll")
 					d.cursor.row = d.scrollRegion[1] - 1
 					d.Scroll(1)
 				}
-			}
 
-			//d.ScrollToCursor()
+				// Originally I did this with strings.IndexFunc(string(runes[i:]), isControl)
+				// however this seems to return the byte offset rather than the rune offset
+				endIdx = slices.IndexFunc(runes[i:], isControl)
+				if endIdx == -1 {
+					endIdx = len(runes[i:])
+				}
+				// whichever comes first: end of runes, End of row, or a control char
+				endIdx = min(len(runes[i:]), d.cols-d.cursor.col, endIdx)
+				d.RenderRunes(runes[i : i+endIdx])
 
-			// Originally I did this with strings.IndexFunc(string(runes[i:]), isControl)
-			// however this seems to return the byte offset rather than the rune offset
-			endIdx = slices.IndexFunc(runes[i:], isControl)
-			if endIdx == -1 {
-				endIdx = len(runes[i:])
-			}
-			// whichever comes first: end of runes, End of row, or a control char
-			endIdx = min(len(runes[i:]), d.cols-d.cursor.col, endIdx)
-			d.RenderRunes(runes[i : i+endIdx])
+				d.cursor.col += endIdx
 
-			d.cursor.col += endIdx
-
-			i += endIdx - 1
+				i += endIdx - 1
+			*/
 		}
-	}
-
-	// finally, update cursor, if needed
-	d.showCursor()
-
-	if d.Render.DisplayFunc != nil {
-		d.Render.DisplayFunc()
 	}
 
 	return len(data), nil
 }
 
-// func (d *Device) softScroll(amount int) {
 func (d *Device) Scroll(rowAmount int) {
 
 	// scrollArea Empty means scroll the whole screen--we can use more efficient algos for that
 	if d.scrollArea.Empty() {
 
 		// if the underlying image supports Scroll(), use that
-		if scrollable, ok := d.Render.Image.(gfx.Scroller); ok {
-			scrollable.Scroll(rowAmount * d.Render.cell.Dy())
+		// if scrollable, ok := d.Render.Image.(gfx.Scroller); ok {
+		// scrollable.Scroll(rowAmount * d.Render.cell.Dy())
+		if scrollable, ok := d.Render.Image.(gfx.RegionScroller); ok {
+			scrollable.RegionScroll(d.Render.Bounds(), rowAmount*d.Render.cell.Dy())
 		} else {
 			// use softscroll
 			// probably adding a bug here related to xform.Translate
@@ -457,6 +473,9 @@ func (d *Device) Scroll(rowAmount int) {
 
 // should probably move to gfx package
 func softRegionScroll(img draw.Image, region image.Rectangle, amount int) {
+	softVectorScroll(img, region, image.Pt(0, amount))
+	return
+
 	region = img.Bounds().Intersect(region)
 	if region.Empty() || amount == 0 {
 		return
@@ -481,19 +500,39 @@ func softRegionScroll(img draw.Image, region image.Rectangle, amount int) {
 	}
 }
 
+func softVectorScroll(img draw.Image, region image.Rectangle, vector image.Point) {
+	region = img.Bounds().Intersect(region)
+	var dst, src image.Point
+	for y := range region.Dy() {
+		for x := range region.Dx() {
+			dst.X, dst.Y = region.Min.X+x, region.Min.Y+y
+			if vector.Y < 0 {
+				dst.Y = region.Min.Y + region.Dy() - (y + 1)
+			}
+			if vector.X < 0 {
+				dst.X = region.Min.X + region.Dx() - (x + 1)
+			}
+			src = dst.Add(vector).Mod(region)
+			img.Set(dst.X, dst.Y, img.At(src.X, src.Y))
+		}
+	}
+
+	return
+}
+
 // ColsRemaining returns how many columns are remaining until EOL
 func (d *Device) ColsRemaining() int {
 	return d.cols - d.cursor.col
 }
 
 func (d *Device) MoveCursorRel(x, y int) {
-	d.cursor.col = bound(x+d.cursor.col, 0, d.cols)
-	d.cursor.row = bound(y+d.cursor.row, 0, d.rows)
+	d.cursor.col = bound(x+d.cursor.col, 0, d.cols-1)
+	d.cursor.row = bound(y+d.cursor.row, 0, d.rows-1)
 }
 
 func (d *Device) MoveCursorAbs(x, y int) {
-	d.cursor.col = bound(x, 0, d.cols)
-	d.cursor.row = bound(y, 0, d.rows)
+	d.cursor.col = bound(x, 0, d.cols-1)
+	d.cursor.row = bound(y, 0, d.rows-1)
 }
 
 func (d *Device) ScrollToCursor() {

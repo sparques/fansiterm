@@ -28,6 +28,10 @@ func consumeEscSequence(data []rune) (n int, err error) {
 		// For Start of String, Operating System Command, and Device Control String, read
 		// until we encounter String Terminator, ESC\
 		for n = 1; n < len(data); n++ {
+			// handle ESC]R
+			if n == 2 && data[n] == 'R' {
+				return n + 2, nil
+			}
 			if data[n] == '\a' || (data[n-1] == 0x1b && data[n] == '\\') {
 				return n + 1, nil
 			}
@@ -39,7 +43,7 @@ func consumeEscSequence(data []rune) (n int, err error) {
 			}
 		}
 		return 0, errEscapeSequenceIncomplete
-	case '(':
+	case '(', ')':
 		if len(data) < 3 {
 			return 0, errEscapeSequenceIncomplete
 		}
@@ -82,14 +86,19 @@ func (d *Device) HandleEscSequence(seq []rune) {
 		d.attrDefault = AttrDefault
 		d.Render.useAltCharSet = false
 		d.clearAll()
-		d.MoveCursorAbs(0, 0)
+		d.MoveCursorAbs(1, 1)
 		d.scrollArea = image.Rectangle{}
+		d.scrollRegion = [2]int{0, d.rows}
 	case '[':
 		d.HandleCSISequence(seq[2:])
 	case ']':
 		d.HandleOSCSequence(seq[2:])
-	case 'M': // scroll up one?
-		d.Scroll(-1)
+	case 'M': // Move cursor up; if at top of screen, scroll up one line
+		if d.cursor.row == 0 {
+			d.Scroll(-1)
+		} else {
+			d.cursor.row--
+		}
 	case '(': // line drawing mode switching
 		fallthrough
 	case '>': // auxilary keypad numeric mode
@@ -141,6 +150,13 @@ func (d *Device) HandleCSISequence(seq []rune) {
 	args := getNumericArgs(seq[:len(seq)-1], 1)
 	// last byte of seq tells us what function we're doing
 	switch seq[len(seq)-1] {
+	case '@': // // Insert Characters. one option numerica arg, default 1
+		// TODO really shouldn't be using d.Render / d.Render.Image directly in here.
+		// Should have a scroll horizontal function or similar maybe a vectorScroll that works in cells
+		curs := d.cursorPt()
+		softVectorScroll(d.Render.Image,
+			image.Rectangle{Min: curs, Max: curs.Add(image.Pt(d.ColsRemaining()*d.Render.cell.Dx(), d.Render.cell.Dy()))},
+			image.Pt(-d.Render.cell.Dx()*args[0], 0))
 	case 'A': // Cursor Up, one optional numeric arg, default 1
 		if len(args) == 1 {
 			d.MoveCursorRel(0, -args[0])
@@ -167,7 +183,7 @@ func (d *Device) HandleCSISequence(seq []rune) {
 		}
 	case 'G': // Moves the cursor to column n (default 1).
 		if len(args) == 1 {
-			d.MoveCursorAbs(args[0], d.cursor.row)
+			d.MoveCursorAbs(args[0]-1, d.cursor.row)
 		}
 	case 'H': // Cursor position, Moves the cursor to row n, column m. The values are 1-based, and default to 1 (top left corner) if omitted. A sequence such as CSI ;5H is a synonym for CSI 1;5H as well as CSI 17;H is the same as CSI 17H and CSI 17;1H
 		var n, m int = 1, 1
@@ -231,12 +247,13 @@ func (d *Device) HandleCSISequence(seq []rune) {
 		// d.Clear(0, d.scrollRegion[1]-args[0], d.cols, d.scrollRegion[1])
 		// restore
 		d.scrollRegion, d.scrollArea = r, a
-	case 'P': // DCH Delete Character. Delete character(s) to the right of the cursor
-		//args = getNumericArgs(seq[:len(seq)-1], 1)
-		// We don't actually track what characters have been typed; we don't support text handling of any kind
-		// So this hack of just clearing the whole line to the right of the cursor will have to do.
-		// Seems like it works okay so far
-		d.Clear(d.cursor.col, d.cursor.row, d.cols, d.cursor.row+1)
+	case 'P': // DCH Delete Character. Delete character(s) to the right of the cursor, shifting as needed
+		curs := d.cursorPt()
+		softVectorScroll(d.Render.Image,
+			image.Rectangle{Min: curs, Max: curs.Add(image.Pt(d.ColsRemaining()*d.Render.cell.Dx(), d.Render.cell.Dy()))},
+			image.Pt(d.Render.cell.Dx()*args[0], 0))
+		d.Clear(d.cols-args[0], d.cursor.row, d.cols, d.cursor.row+1)
+
 	case 'S': // Scroll whole page up by n (default 1) lines. New lines are added at the bottom.
 		if len(args) == 1 {
 			d.Scroll(args[0])
@@ -245,11 +262,13 @@ func (d *Device) HandleCSISequence(seq []rune) {
 		if len(args) == 1 {
 			d.Scroll(args[0])
 		}
+	case 'X': // Delete (clear) cells to the right of the cursor, on the same line
+		d.Clear(d.cursor.col, d.cursor.row, bound(args[0]+d.cursor.col, d.cursor.col+1, d.cols), d.cursor.row+1)
 	case 'c': // DA Device Attributes
 		// Lie and say we're a vt100
 		fmt.Fprintf(d.Output, "\x1b[?1;2c")
 	case 'd': // CSI n d: Mover cursor to line n
-		args = getNumericArgs(seq[:len(seq)-1], 0)
+		args = getNumericArgs(seq[:len(seq)-1], 1)
 		d.cursor.row = bound(args[0]-1, 0, d.rows)
 	case 'm': // CoLoRs!1!! AKA SGR (Select Graphic Rendition)
 		args := getNumericArgs(seq[:len(seq)-1], 0)
@@ -283,6 +302,8 @@ func (d *Device) HandleCSISequence(seq []rune) {
 				d.attr.Reversed = false
 			case 9:
 				d.attr.Strike = true
+			case 10:
+				// no alternate fonts supported (yet)
 			case 29:
 				d.attr.Strike = false
 			case 30:
@@ -301,6 +322,8 @@ func (d *Device) HandleCSISequence(seq []rune) {
 				d.attr.Fg = ColorCyan
 			case 37:
 				d.attr.Fg = ColorWhite
+			case 39:
+				d.attr.Fg = AttrDefault.Fg
 			case 40:
 				d.attr.Bg = ColorBlack
 			case 41:
@@ -317,6 +340,8 @@ func (d *Device) HandleCSISequence(seq []rune) {
 				d.attr.Bg = ColorCyan
 			case 47:
 				d.attr.Bg = ColorWhite
+			case 49:
+				d.attr.Bg = AttrDefault.Bg
 			case 90:
 				d.attr.Fg = ColorBrightBlack
 			case 91:
@@ -380,6 +405,11 @@ func (d *Device) HandleCSISequence(seq []rune) {
 					d.attr.Bg = NewOpaqueColor(r, g, b)
 				}
 
+			default:
+				if ShowUnhandled {
+					fmt.Println("Unhandled SGR:", args[i], "(part of", seqString(seq), ")")
+				}
+
 			} // switch for SGR
 
 		}
@@ -392,7 +422,8 @@ func (d *Device) HandleCSISequence(seq []rune) {
 		case 5:
 			d.Output.Write([]byte{0x1b, '[', '0', 'n'})
 		case 6:
-			fmt.Fprintf(d.Output, "\x1b[%d;%dR", d.cursor.row+1, d.cursor.col+1)
+			fmt.Fprintf(d.Output, "\x1b[%d;%dR", bound(d.cursor.row+1, 1, d.rows), bound(d.cursor.col+1, 1, d.cols))
+
 		}
 	case 'l', 'h': // on/off extensions
 		if seq[0] != '?' || len(seq) < 2 {
