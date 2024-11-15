@@ -80,8 +80,14 @@ func bound[N constraints.Integer](x, minimum, maximum N) N {
 // sequence. Bounds are not checked so an incomplete sequence will cause
 // a panic.
 func (d *Device) HandleEscSequence(seq []rune) {
-	//fmt.Println(seqString(seq))
+	fmt.Println(seqString(seq))
 	switch seq[1] {
+	case '7': // save cursor position
+		d.cursor.prevPos[0] = d.cursor.col
+		d.cursor.prevPos[1] = d.cursor.row
+	case '8': // restore cursor position
+		d.cursor.col = d.cursor.prevPos[0]
+		d.cursor.row = d.cursor.prevPos[1]
 	case 'c': // reset
 		d.attrDefault = AttrDefault
 		d.Render.useAltCharSet = false
@@ -99,8 +105,16 @@ func (d *Device) HandleEscSequence(seq []rune) {
 		} else {
 			d.cursor.row--
 		}
-	case '(': // line drawing mode switching
-		fallthrough
+	case '(', ')': // line drawing mode switching
+		// B for regular, 0 for line drawing
+		switch seq[2] {
+		case '0':
+			d.attr.LineDrawing = true
+		case 'B':
+			fallthrough
+		default:
+			d.attr.LineDrawing = false
+		}
 	case '>': // auxilary keypad numeric mode
 		fallthrough
 	case '=': // auxilary keypad application mode
@@ -304,6 +318,10 @@ func (d *Device) HandleCSISequence(seq []rune) {
 				d.attr.Strike = true
 			case 10:
 				// no alternate fonts supported (yet)
+				d.attr.LineDrawing = false
+			case 11:
+				// line drawing?!
+				d.attr.LineDrawing = true
 			case 29:
 				d.attr.Strike = false
 			case 30:
@@ -417,7 +435,6 @@ func (d *Device) HandleCSISequence(seq []rune) {
 		// args -
 		// '5' just returns CSI 0 n
 		// '6' return cursor location
-		// Just assume we were passed 6
 		switch args[0] {
 		case 5:
 			d.Output.Write([]byte{0x1b, '[', '0', 'n'})
@@ -439,6 +456,10 @@ func (d *Device) HandleCSISequence(seq []rune) {
 				}
 			} else {
 				d.cursor.show = true
+			}
+		default:
+			if ShowUnhandled {
+				fmt.Println("Unhandled Private Sequence", seqString(seq))
 			}
 		}
 	case 'r': // set scroll region

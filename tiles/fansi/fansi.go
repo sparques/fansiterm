@@ -14,18 +14,33 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/sparques/fansiterm/tiles"
 )
+
+// Figures out what rune a file name
+func getRuneFromName(filename string) rune {
+	filename = strings.TrimSuffix(filename, ".png")
+	rs := []rune(filename)
+	if len(rs) <= 2 {
+		return rs[0]
+	}
+	if i, err := strconv.Atoi(filename); err == nil {
+		return rune(i)
+	}
+
+	panic("could not determine how to map image data to a rune!")
+}
 
 func main() {
 	ts := tiles.NewFontTileSet()
 
 	files, _ := filepath.Glob("*.png")
 	for _, file := range files {
-		runes := []rune(file)
 		img := LoadTileFromFile(file)
-		ts.Glyphs[runes[0]] = img.Pix
+		ts.Glyphs[getRuneFromName(file)] = img.Pix
 		if ts.Rectangle.Eq(image.Rectangle{}) {
 			ts.Rectangle = img.Bounds()
 		}

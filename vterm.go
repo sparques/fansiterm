@@ -87,13 +87,16 @@ type Cursor struct {
 
 type Render struct {
 	draw.Image
-	charSet       tiles.Tiler
-	altCharSet    tiles.Tiler
-	boldCharSet   tiles.Tiler
-	italicCharSet tiles.Tiler
-	useAltCharSet bool
-	cell          image.Rectangle
-	cursorFunc    cursorRectFunc
+	currentCharSet tiles.Tiler
+	G0             tiles.Tiler
+	G1             tiles.Tiler
+	charSet        tiles.Tiler
+	altCharSet     tiles.Tiler
+	boldCharSet    tiles.Tiler
+	italicCharSet  tiles.Tiler
+	useAltCharSet  bool
+	cell           image.Rectangle
+	cursorFunc     cursorRectFunc
 	// Some displays require a flush / blit / sync call
 	// this could be called at the end of (*Device).Write().
 	DisplayFunc func()
@@ -106,6 +109,7 @@ type Config struct {
 }
 
 type Attr struct {
+	LineDrawing     bool
 	Bold            bool
 	Underline       bool
 	DoubleUnderline bool

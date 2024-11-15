@@ -86,6 +86,34 @@ func (fts *FontTileSet) DrawTile(r rune, dst draw.Image, pt image.Point, fg colo
 	}
 }
 
+// Remap lets you remap runes in a FontTileSet. This is useful, for example, to make it so
+// line-drawing mode can simply use the same font, but use unicode glyphs.
+type Remap struct {
+	*FontTileSet
+	Map map[rune]rune
+}
+
+func NewRemap(base *FontTileSet) *Remap {
+	return &Remap{
+		FontTileSet: base,
+		Map:         make(map[rune]rune),
+	}
+}
+
+func (remap *Remap) DrawTile(r rune, dst draw.Image, pt image.Point, fg color.Color, bg color.Color) {
+	if newr, ok := remap.Map[r]; ok {
+		r = newr
+	}
+	remap.FontTileSet.DrawTile(r, dst, pt, fg, bg)
+}
+
+func (remap *Remap) GetTile(r rune) image.Image {
+	if newr, ok := remap.Map[r]; ok {
+		r = newr
+	}
+	return remap.FontTileSet.Glyph(r)
+}
+
 // fallback implements Tiler such that all runes return EmptyTile
 type fallback struct{}
 
