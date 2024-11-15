@@ -105,15 +105,24 @@ func (d *Device) HandleEscSequence(seq []rune) {
 		} else {
 			d.cursor.row--
 		}
-	case '(', ')': // line drawing mode switching
-		// B for regular, 0 for line drawing
+	case '(': // set G0
 		switch seq[2] {
 		case '0':
-			d.attr.LineDrawing = true
+			d.Render.G0 = d.Render.altCharSet
 		case 'B':
 			fallthrough
 		default:
-			d.attr.LineDrawing = false
+			d.Render.G0 = d.Render.charSet
+		}
+	case ')': // set G1
+		// B for regular, 0 for line drawing
+		switch seq[2] {
+		case '0':
+			d.Render.G1 = d.Render.altCharSet
+		case 'B':
+			fallthrough
+		default:
+			d.Render.G1 = d.Render.charSet
 		}
 	case '>': // auxilary keypad numeric mode
 		fallthrough
@@ -124,6 +133,7 @@ func (d *Device) HandleEscSequence(seq []rune) {
 			fmt.Println("Unhandled ESC:", seqString(seq))
 		}
 	}
+	d.updateAttr()
 }
 
 func trimST(seq []rune) []rune {
@@ -316,12 +326,13 @@ func (d *Device) HandleCSISequence(seq []rune) {
 				d.attr.Reversed = false
 			case 9:
 				d.attr.Strike = true
-			case 10:
-				// no alternate fonts supported (yet)
-				d.attr.LineDrawing = false
-			case 11:
-				// line drawing?!
-				d.attr.LineDrawing = true
+			// case 10:
+			// no alternate fonts supported (yet)
+			//d.attr.LineDrawing = false
+			// case 11:
+			// line drawing?!
+			// is this the same as shift out? or setting
+			//d.attr.LineDrawing = true
 			case 29:
 				d.attr.Strike = false
 			case 30:

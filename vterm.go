@@ -87,16 +87,20 @@ type Cursor struct {
 
 type Render struct {
 	draw.Image
-	currentCharSet tiles.Tiler
-	G0             tiles.Tiler
-	G1             tiles.Tiler
-	charSet        tiles.Tiler
-	altCharSet     tiles.Tiler
-	boldCharSet    tiles.Tiler
-	italicCharSet  tiles.Tiler
-	useAltCharSet  bool
-	cell           image.Rectangle
-	cursorFunc     cursorRectFunc
+	active struct {
+		tileSet tiles.Tiler
+		fg      Color
+		bg      Color
+	}
+	G0            tiles.Tiler
+	G1            tiles.Tiler
+	charSet       tiles.Tiler
+	altCharSet    tiles.Tiler
+	boldCharSet   tiles.Tiler
+	italicCharSet tiles.Tiler
+	useAltCharSet bool
+	cell          image.Rectangle
+	cursorFunc    cursorRectFunc
 	// Some displays require a flush / blit / sync call
 	// this could be called at the end of (*Device).Write().
 	DisplayFunc func()
@@ -109,7 +113,6 @@ type Config struct {
 }
 
 type Attr struct {
-	LineDrawing     bool
 	Bold            bool
 	Underline       bool
 	DoubleUnderline bool
@@ -117,6 +120,7 @@ type Attr struct {
 	Blink           bool
 	Reversed        bool
 	Italic          bool
+	ShiftOut        bool
 	Fg              Color
 	Bg              Color
 }
@@ -128,6 +132,26 @@ var AttrDefault = Attr{
 
 var ConfigDefault = Config{
 	TabSize: 8,
+}
+
+// TODO a name that doesn't suck
+func (d *Device) updateAttr() {
+	d.Render.active.fg, d.Render.active.bg = d.attr.Fg, d.attr.Bg
+	if d.attr.Reversed {
+		d.Render.active.fg, d.Render.active.bg = d.attr.Bg, d.attr.Fg
+	}
+
+	// Bold and Itallic override G0 and G1
+	switch {
+	case d.attr.Bold:
+		d.Render.active.tileSet = d.Render.boldCharSet
+	case d.attr.Italic:
+		d.Render.active.tileSet = d.Render.italicCharSet
+	case d.attr.ShiftOut:
+		d.Render.active.tileSet = d.Render.G1
+	default:
+		d.Render.active.tileSet = d.Render.G0
+	}
 }
 
 // New returns an initialized *Device. If buf is nil, an internal buffer is used. Otherwise
@@ -156,12 +180,15 @@ func New(cols, rows int, buf draw.Image) *Device {
 		attr: AttrDefault,
 		Render: Render{
 			Image:         buf,
+			G0:            inconsolata.Regular8x16,
+			G1:            fansi.AltCharSet,
 			altCharSet:    fansi.AltCharSet,
 			charSet:       inconsolata.Regular8x16,
 			boldCharSet:   inconsolata.Bold8x16,
-			italicCharSet: &tiles.Italics{FontTileSet: inconsolata.Regular8x16},
-			cell:          cell,
-			cursorFunc:    blockRect,
+			italicCharSet: &tiles.Italics{FontTileSet: inconsolata.Bold8x16},
+			// italicCharSet: &tiles.Italics{FontTileSet: inconsolata.Regular8x16},
+			cell:       cell,
+			cursorFunc: blockRect,
 		},
 		cursor: Cursor{
 			show: true,
@@ -172,6 +199,8 @@ func New(cols, rows int, buf draw.Image) *Device {
 		Properties:   make(map[Property]string),
 		scrollRegion: [2]int{0, rows},
 	}
+
+	d.updateAttr()
 
 	return d
 }
@@ -363,9 +392,11 @@ func (d *Device) Write(data []byte) (n int, err error) {
 				d.Scroll(1)
 			}
 		case 0x0E: // shift out (use alt character set)
-			d.Render.useAltCharSet = true
+			d.attr.ShiftOut = true
+			d.updateAttr()
 		case 0x0F: // shift in (use regular char set)
-			d.Render.useAltCharSet = false
+			d.attr.ShiftOut = false
+			d.updateAttr()
 		case 0x1b: // ESC aka ^[
 			n, err = consumeEscSequence(runes[i:])
 			if err != nil {
@@ -398,7 +429,7 @@ func (d *Device) Write(data []byte) (n int, err error) {
 					d.cursor.row++
 				}
 			}
-			d.RenderRunes(runes[i : i+1])
+			d.RenderRune(runes[i])
 			d.cursor.col++
 
 			/*
@@ -478,30 +509,6 @@ func (d *Device) Scroll(rowAmount int) {
 // should probably move to gfx package
 func softRegionScroll(img draw.Image, region image.Rectangle, amount int) {
 	softVectorScroll(img, region, image.Pt(0, amount))
-	return
-
-	region = img.Bounds().Intersect(region)
-	if region.Empty() || amount == 0 {
-		return
-	}
-	// if amount is positive or negative, copy lines forwards or backwards
-
-	// positive scrolling
-	if amount > 0 {
-		for y := region.Min.Y; y < (region.Max.Y - amount); y++ {
-			for x := region.Min.X; x < region.Max.X; x++ {
-				img.Set(x, y, img.At(x, y+amount))
-			}
-		}
-		return
-	}
-
-	// negative scrolling
-	for y := region.Max.Y - 1; y >= (region.Min.Y - amount); y-- {
-		for x := region.Min.X; x < region.Max.X; x++ {
-			img.Set(x, y, img.At(x, y+amount))
-		}
-	}
 }
 
 func softVectorScroll(img draw.Image, region image.Rectangle, vector image.Point) {

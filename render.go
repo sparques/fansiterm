@@ -26,6 +26,48 @@ func (d *Device) cursorPt() image.Point {
 	return image.Pt(d.Render.Bounds().Min.X+d.Render.cell.Dx()*d.cursor.col, d.Render.Bounds().Min.Y+d.Render.cell.Dy()*d.cursor.row)
 }
 
+func (d *Device) RenderRune(sym rune) {
+	d.Render.active.tileSet.DrawTile(sym, d.Render.Image, d.cursorPt(), d.Render.active.fg, d.Render.active.bg)
+
+	if d.attr.Strike {
+		// draw a single pixel high line through the center of the whole cell
+		draw.Draw(d.Render,
+			image.Rect(
+				0,
+				d.Render.cell.Dy()/2+1,
+				d.Render.cell.Dx(),
+				d.Render.cell.Dy()/2+2).Add(d.cursorPt()),
+			d.Render.active.fg,
+			image.Point{},
+			draw.Src)
+	}
+
+	if d.attr.Underline {
+		// draw a single pixel high line through the the whole cell, 3px above the bottom of the cell
+		draw.Draw(d.Render,
+			image.Rect(
+				0,
+				d.Render.cell.Dy()-1,
+				d.Render.cell.Dx(),
+				d.Render.cell.Dy()).Add(d.cursorPt()),
+			d.Render.active.fg,
+			image.Point{},
+			draw.Src)
+		// draw second line for double underline
+		if d.attr.DoubleUnderline {
+			draw.Draw(d.Render,
+				image.Rect(
+					0,
+					d.Render.cell.Dy()-3,
+					d.Render.cell.Dx(),
+					d.Render.cell.Dy()-2).Add(d.cursorPt()),
+				d.Render.active.fg,
+				image.Point{},
+				draw.Src)
+		}
+	}
+}
+
 // RenderRunes does not do *any* interpretation of escape codes or control characters like \r or \n.
 // It simply renders a slice of runes (as a string) at the cursor position. It is up to the caller
 // of RenderRunes to ensure there's enough space for the runes on the buffer and to process any
