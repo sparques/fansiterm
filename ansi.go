@@ -14,7 +14,10 @@ import (
 
 var errEscapeSequenceIncomplete = errors.New("escape sequence incomplete")
 
-var ShowUnhandled bool
+var (
+	ShowEsc       bool
+	ShowUnhandled bool
+)
 
 // consumeEscSequence figures out where the escape sequence in data ends.
 // It assumes data[0] == 0x1b.
@@ -80,7 +83,9 @@ func bound[N constraints.Integer](x, minimum, maximum N) N {
 // sequence. Bounds are not checked so an incomplete sequence will cause
 // a panic.
 func (d *Device) HandleEscSequence(seq []rune) {
-	fmt.Println(seqString(seq))
+	if ShowEsc {
+		fmt.Println(seqString(seq))
+	}
 	switch seq[1] {
 	case '7': // save cursor position
 		d.cursor.prevPos[0] = d.cursor.col
@@ -451,9 +456,8 @@ func (d *Device) HandleCSISequence(seq []rune) {
 			d.Output.Write([]byte{0x1b, '[', '0', 'n'})
 		case 6:
 			fmt.Fprintf(d.Output, "\x1b[%d;%dR", bound(d.cursor.row+1, 1, d.rows), bound(d.cursor.col+1, 1, d.cols))
-
 		}
-	case 'l', 'h': // on/off extensions
+	case 'l', 'h': // private on/off extensions
 		if seq[0] != '?' || len(seq) < 2 {
 			return
 		}

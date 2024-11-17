@@ -134,26 +134,6 @@ var ConfigDefault = Config{
 	TabSize: 8,
 }
 
-// TODO a name that doesn't suck
-func (d *Device) updateAttr() {
-	d.Render.active.fg, d.Render.active.bg = d.attr.Fg, d.attr.Bg
-	if d.attr.Reversed {
-		d.Render.active.fg, d.Render.active.bg = d.attr.Bg, d.attr.Fg
-	}
-
-	// Bold and Itallic override G0 and G1
-	switch {
-	case d.attr.Bold:
-		d.Render.active.tileSet = d.Render.boldCharSet
-	case d.attr.Italic:
-		d.Render.active.tileSet = d.Render.italicCharSet
-	case d.attr.ShiftOut:
-		d.Render.active.tileSet = d.Render.G1
-	default:
-		d.Render.active.tileSet = d.Render.G0
-	}
-}
-
 // New returns an initialized *Device. If buf is nil, an internal buffer is used. Otherwise
 // if you specify a hardware backed draw.Image, writes to Device will immediately be written
 // to the backing hardware--whether this is instaneous or buffered is up to the device and the
@@ -197,7 +177,7 @@ func New(cols, rows int, buf draw.Image) *Device {
 		Config:       ConfigDefault,
 		Output:       io.Discard,
 		Properties:   make(map[Property]string),
-		scrollRegion: [2]int{0, rows},
+		scrollRegion: [2]int{0, rows - 1},
 	}
 
 	d.updateAttr()
@@ -302,7 +282,7 @@ func (d *Device) SetCursorStyle(style cursorRectFunc) {
 	d.showCursor()
 }
 
-// VisualBell inverts the screen for a quarter second.
+// VisualBell inverts the screen for a tenth of a second.
 func (d *Device) VisualBell() {
 	draw.Draw(d.Render, d.Render.Bounds(), xform.InvertColors(d.Render), image.Point{}, draw.Src)
 	time.Sleep(time.Second / 10)
@@ -367,7 +347,9 @@ func (d *Device) Write(data []byte) (n int, err error) {
 
 	// var endIdx int
 	for i := 0; i < len(runes); i++ {
-		// fmt.Println(seqString(runes[i:]))
+		// if runes[i] < 0x1b {
+		// 	fmt.Printf("%02x\n", runes[i])
+		// }
 		switch runes[i] {
 		case '\a': // bell
 			if d.BellFunc != nil {
@@ -385,11 +367,15 @@ func (d *Device) Write(data []byte) (n int, err error) {
 		case '\r': // carriage return
 			d.cursor.col = 0
 		case '\n': // linefeed
-			d.cursor.row++
+			// if scroll region is not the whole screen, trying to do a new line past the end
+			// of the last row should be treated as a carriage return
 			d.cursor.col = 0
-			if d.cursor.row >= d.scrollRegion[1] || d.cursor.row > d.rows {
-				d.cursor.row = d.scrollRegion[1] - 1
+			if d.cursor.row == d.scrollRegion[1] {
 				d.Scroll(1)
+				continue
+			}
+			if d.cursor.row < d.rows-1 {
+				d.cursor.row++
 			}
 		case 0x0E: // shift out (use alt character set)
 			d.attr.ShiftOut = true
@@ -408,56 +394,21 @@ func (d *Device) Write(data []byte) (n int, err error) {
 			d.HandleEscSequence(runes[i : i+n])
 			i += n - 1
 		default:
-			// consume as many non-control characters as possible
-			// render these with RenderRunes
-			// increment cursor; increment i
-
-			// doing the column overflow to new row check here gets us the correct behavior
-			// where we can put a character into the last column and we do not scroll/move the cursor to
-			// the next row until we have a character to put there.
-
-			// I put a lot of work into making this routine process/render more than a single character at
-			// a time. Just made sense that that would be faster and more efficient. Empirical testing says
-			// otherwise. Single character at a time is much simpler to code and as fast if not faster
-			// than grouping printing characters together. I have no damn idea.
-
+			// if we're past the end of the screen (remember, d.cols=number of columns but cursor.col is 0 indexed)
 			if d.cursor.col == d.cols {
+				// back to the beginning
 				d.cursor.col = 0
+				// scroll if necessary otherwise just move on to the next row
 				if d.cursor.row == d.scrollRegion[1]-1 {
 					d.Scroll(1)
-				} else {
+				} else if d.cursor.row < d.rows-1 {
 					d.cursor.row++
 				}
 			}
+			// render our single rune
 			d.RenderRune(runes[i])
+			// if we drew something the screen, we increment the column.
 			d.cursor.col++
-
-			/*
-				if d.cursor.col >= d.cols {
-					d.cursor.col = 0
-					d.cursor.row++
-				}
-				// only scroll if we've wandered into the exact line after our scrollRegion
-				if d.cursor.row == d.scrollRegion[1] || d.cursor.row > d.rows {
-					fmt.Println("Overflow scroll")
-					d.cursor.row = d.scrollRegion[1] - 1
-					d.Scroll(1)
-				}
-
-				// Originally I did this with strings.IndexFunc(string(runes[i:]), isControl)
-				// however this seems to return the byte offset rather than the rune offset
-				endIdx = slices.IndexFunc(runes[i:], isControl)
-				if endIdx == -1 {
-					endIdx = len(runes[i:])
-				}
-				// whichever comes first: end of runes, End of row, or a control char
-				endIdx = min(len(runes[i:]), d.cols-d.cursor.col, endIdx)
-				d.RenderRunes(runes[i : i+endIdx])
-
-				d.cursor.col += endIdx
-
-				i += endIdx - 1
-			*/
 		}
 	}
 
@@ -546,26 +497,12 @@ func (d *Device) MoveCursorAbs(x, y int) {
 	d.cursor.row = bound(y, 0, d.rows-1)
 }
 
-func (d *Device) ScrollToCursor() {
-	// this one shouldn't happen
-	if d.cursor.col > d.cols {
-		d.cursor.col = 0
-		d.cursor.row++
-	}
-	// this is the more common scenario
-	if d.cursor.row > d.scrollRegion[1] || d.cursor.row > d.rows {
-		//d.cursor.col = 0
-		d.cursor.row = d.scrollRegion[1] - 1
-		d.Scroll(1)
-	}
-}
-
 func (d *Device) setScrollRegion(start, end int) {
 	d.scrollArea.Min.X = d.Render.Image.Bounds().Min.X
 	d.scrollArea.Max.X = d.Render.Image.Bounds().Max.X
 
-	d.scrollRegion[0] = bound((start - 1), 0, d.rows)
-	d.scrollRegion[1] = bound((end - 1), 0, d.rows)
+	d.scrollRegion[0] = bound((start - 1), 0, d.rows-1)
+	d.scrollRegion[1] = bound((end - 1), 0, d.rows-1)
 
 	d.scrollArea.Min.Y = d.scrollRegion[0] * d.Render.cell.Dy()
 	// + 1 because internally we are 0-indexed, but ANSI escape codes are 1-indexed
@@ -577,6 +514,6 @@ func (d *Device) setScrollRegion(start, end int) {
 	// if you mess up setting the scroll area, just forget the whole thing.
 	if (start == 0 && end == 0) || start >= end || d.scrollArea.Eq(d.Render.Bounds()) {
 		d.scrollArea = image.Rectangle{}
-		d.scrollRegion = [2]int{0, d.rows}
+		d.scrollRegion = [2]int{0, d.rows - 1}
 	}
 }

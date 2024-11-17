@@ -20,12 +20,36 @@ var (
 	CursorUnderscore = underscoreRect
 )
 
+// updateAttr updates d.Render.active based on d.Attr.
+// TODO a name that doesn't suck
+func (d *Device) updateAttr() {
+	d.Render.active.fg, d.Render.active.bg = d.attr.Fg, d.attr.Bg
+	if d.attr.Reversed {
+		d.Render.active.fg, d.Render.active.bg = d.attr.Bg, d.attr.Fg
+	}
+
+	// Bold and Itallic override G0 and G1
+	switch {
+	case d.attr.Bold:
+		d.Render.active.tileSet = d.Render.boldCharSet
+	case d.attr.Italic:
+		d.Render.active.tileSet = d.Render.italicCharSet
+	case d.attr.ShiftOut:
+		d.Render.active.tileSet = d.Render.G1
+	default:
+		d.Render.active.tileSet = d.Render.G0
+	}
+}
+
 // cursorPt returns the location of the cursor as an image.Point
 // From perspective of viewing the rendered terminal, this is the top left corner of the cell the cursor is in.
 func (d *Device) cursorPt() image.Point {
 	return image.Pt(d.Render.Bounds().Min.X+d.Render.cell.Dx()*d.cursor.col, d.Render.Bounds().Min.Y+d.Render.cell.Dy()*d.cursor.row)
 }
 
+// RenderRune does not do *any* interpretation of escape codes or control characters like \r or \n.
+// It simply renders a single rune at the cursor position. It is up to the caller
+// of RenderRune to process any control sequences / handle non-printing characters.
 func (d *Device) RenderRune(sym rune) {
 	d.Render.active.tileSet.DrawTile(sym, d.Render.Image, d.cursorPt(), d.Render.active.fg, d.Render.active.bg)
 
@@ -62,80 +86,6 @@ func (d *Device) RenderRune(sym rune) {
 					d.Render.cell.Dx(),
 					d.Render.cell.Dy()-2).Add(d.cursorPt()),
 				d.Render.active.fg,
-				image.Point{},
-				draw.Src)
-		}
-	}
-}
-
-// RenderRunes does not do *any* interpretation of escape codes or control characters like \r or \n.
-// It simply renders a slice of runes (as a string) at the cursor position. It is up to the caller
-// of RenderRunes to ensure there's enough space for the runes on the buffer and to process any
-// control sequences.
-func (d *Device) RenderRunes(sym []rune) {
-	fg, bg, ts := d.attr.Fg, d.attr.Bg, d.Render.charSet
-	// Which Face are we using? Note that useAltCharSet overrides Bold and Italics
-	switch {
-	case d.Render.useAltCharSet:
-		ts = d.Render.altCharSet
-	case d.attr.Bold:
-		ts = d.Render.boldCharSet
-	case d.attr.Italic:
-		ts = d.Render.italicCharSet
-	}
-
-	if d.attr.Reversed {
-		fg, bg = bg, fg
-	}
-
-	// consider making this work; then you can do bold + Italic
-	// if d.attr.Italic {
-	// 	ts = Italics{ts}
-	// }
-
-	// draw characters
-	for i, glyph := range sym {
-		ts.DrawTile(glyph, d.Render.Image,
-			d.cursorPt().Add(image.Pt(i*d.Render.cell.Dx(), 0)),
-			fg, bg)
-	}
-
-	// TODO: clean this mess up up; really could use better drawing routines
-	// Need to do a performance comparison; would it be better to have "glyphs" that are lines and render those overtop
-	// characters? The code would certainly be cleaner and simpler that way.
-	if d.attr.Strike {
-		// draw a single pixel high line through the center of the whole cell
-		draw.Draw(d.Render,
-			image.Rect(
-				0,
-				d.Render.cell.Max.Y/2+1,
-				d.Render.cell.Max.X*len(sym),
-				d.Render.cell.Max.Y/2+2).Add(d.cursorPt()),
-			fg,
-			image.Point{},
-			draw.Src)
-	}
-
-	if d.attr.Underline {
-		// draw a single pixel high line through the the whole cell, 3px above the bottom of the cell
-		draw.Draw(d.Render,
-			image.Rect(
-				0,
-				d.Render.cell.Max.Y-1,
-				d.Render.cell.Max.X*len(sym),
-				d.Render.cell.Max.Y).Add(d.cursorPt()),
-			fg,
-			image.Point{},
-			draw.Src)
-		// draw second line for double underline
-		if d.attr.DoubleUnderline {
-			draw.Draw(d.Render,
-				image.Rect(
-					0,
-					d.Render.cell.Max.Y-3,
-					d.Render.cell.Max.X*len(sym),
-					d.Render.cell.Max.Y-2).Add(d.cursorPt()),
-				fg,
 				image.Point{},
 				draw.Src)
 		}
