@@ -399,7 +399,7 @@ func (d *Device) Write(data []byte) (n int, err error) {
 				// back to the beginning
 				d.cursor.col = 0
 				// scroll if necessary otherwise just move on to the next row
-				if d.cursor.row == d.scrollRegion[1]-1 {
+				if d.cursor.row == d.scrollRegion[1] {
 					d.Scroll(1)
 				} else if d.cursor.row < d.rows-1 {
 					d.cursor.row++
