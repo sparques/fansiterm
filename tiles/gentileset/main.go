@@ -19,10 +19,12 @@ import (
 	"go/format"
 	"image"
 	"image/draw"
+	"image/png"
 	"io/ioutil"
 	"log"
 	"math"
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 	"unicode"
@@ -43,6 +45,9 @@ var (
 	tileHeight = flag.Int("height", 16, "height of tile")
 	boostAlpha = flag.Bool("boostalpha", true, "scale the alpha of pixels so that the brightest pixel per glyph is 255.")
 	dump       = flag.Bool("showmetrics", false, "Show font metrics and exit (doesn't generate anything).")
+	startcp    = flag.Int("start", 0, "starting codepoint")
+	endcp      = flag.Int("end", unicode.MaxRune, "ending codepoint")
+	output     = flag.String("output", "fts", "what to output; fts generates a go source file; png generates a set of pngs")
 )
 
 func loadFontFile() ([]byte, error) {
@@ -76,7 +81,7 @@ func privateUseArea(r rune) bool {
 
 func loadRanges(f *truetype.Font) (ret [][2]rune) {
 	rr := [2]rune{-1, -1}
-	for r := rune(0); r <= unicode.MaxRune; r++ {
+	for r := rune(*startcp); r <= rune(*endcp); r++ {
 		if f.Index(r) == 0 {
 			continue
 		}
@@ -139,6 +144,21 @@ func main() {
 				fontTileSet.Glyphs[r] = dst.Pix
 			}
 		}
+	}
+
+	if *output == "png" {
+		for cp := range fontTileSet.Glyphs {
+			var fn string
+			if cp < 127 {
+				fn = fmt.Sprintf("%c.png", cp)
+			} else {
+				fn = fmt.Sprintf("%d.png", cp)
+			}
+			fh, _ := os.Create(fn)
+			png.Encode(fh, fontTileSet.Glyph(cp))
+			fh.Close()
+		}
+		return
 	}
 
 	buf := new(bytes.Buffer)

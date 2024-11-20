@@ -6,6 +6,7 @@ import (
 	"image/draw"
 	_ "image/png"
 	"io"
+	"maps"
 	"math"
 	"os"
 )
@@ -31,6 +32,11 @@ func NewFontTileSet() *FontTileSet {
 	return &FontTileSet{
 		Glyphs: make(map[rune][]uint8),
 	}
+}
+
+// Merge copiess code points / glyphs into fts, displacing any overlapping code points.
+func (fts *FontTileSet) Merge(src *FontTileSet) {
+	maps.Copy(fts.Glyphs, src.Glyphs)
 }
 
 func (fts *FontTileSet) Glyph(r rune) *image.Alpha {
