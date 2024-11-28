@@ -87,6 +87,7 @@ type Cursor struct {
 
 type Render struct {
 	draw.Image
+	bounds image.Rectangle
 	active struct {
 		tileSet tiles.Tiler
 		fg      Color
@@ -151,7 +152,21 @@ func New(cols, rows int, buf draw.Image) *Device {
 		buf = image.NewRGBA(image.Rect(0, 0, cols*cell.Max.X, rows*cell.Max.Y))
 	}
 
-	draw.Draw(buf, buf.Bounds(), image.Black, image.Point{}, draw.Src)
+	// figure out our actual terminal bounds.
+	bounds := image.Rect(0, 0, cell.Dx()*cols, cell.Dy()*rows).Add(buf.Bounds().Min)
+
+	// if our backing buffer is bigger than our grid of cells, center the terminal
+	// ... more or less.
+
+	// figure out how much we need to shift around
+	offset := image.Pt((buf.Bounds().Dx()%cell.Dx())/2, (buf.Bounds().Dy()%cell.Dy())/2)
+
+	// shift around
+	bounds = bounds.Add(offset)
+
+	// only pre-fill our area. If user wants the rest of the buffer colored in, that's
+	// on them.
+	draw.Draw(buf, bounds, AttrDefault.Bg, image.Point{}, draw.Src)
 
 	d := &Device{
 		cols: cols,
@@ -159,6 +174,7 @@ func New(cols, rows int, buf draw.Image) *Device {
 		attr: AttrDefault,
 		Render: Render{
 			Image:         buf,
+			bounds:        bounds,
 			G0:            sweet16.Regular8x16,
 			G1:            fansi.AltCharSet,
 			AltCharSet:    fansi.AltCharSet,
@@ -190,6 +206,7 @@ func New(cols, rows int, buf draw.Image) *Device {
 // Fansiterm will only ever update / work on the rectangle it has claimed.
 // If you want to use an existing backing buffer and position that, use NewWithBuf and
 // use xform.SubImage() to locate the terminal.
+/* deprecated
 func NewAtResolution(x, y int, buf draw.Image) *Device {
 	// TODO: This is a crappy way of figuring out what font we're using. Do something else.
 	d := New(1, 1, nil)
@@ -218,6 +235,7 @@ func NewAtResolution(x, y int, buf draw.Image) *Device {
 	}
 
 }
+*/
 
 // NewWithBuf uses buf as its target. NewWithBuf() will panic if called against a
 // nil buf. If using fansiterm with backing hardware, NewWithBuf is likely the way
@@ -241,11 +259,10 @@ func NewWithBuf(buf draw.Image) *Device {
 	cols := buf.Bounds().Dx() / 8
 	rows := buf.Bounds().Dy() / 16
 
-	draw.Draw(buf, buf.Bounds(), image.Black, image.Point{}, draw.Src)
-
 	return New(cols, rows, buf)
 }
 
+// TODO: FIXME
 func (d *Device) HandleResize() {
 	cols := d.Render.Bounds().Dx() / d.Render.cell.Dx()
 	rows := d.Render.Bounds().Dy() / d.Render.cell.Dy()
@@ -416,10 +433,8 @@ func (d *Device) Write(data []byte) (n int, err error) {
 }
 
 func (d *Device) Scroll(rowAmount int) {
-
 	// scrollArea Empty means scroll the whole screen--we can use more efficient algos for that
 	if d.scrollArea.Empty() {
-
 		// if the underlying image supports Scroll(), use that
 		// if scrollable, ok := d.Render.Image.(gfx.Scroller); ok {
 		// scrollable.Scroll(rowAmount * d.Render.cell.Dy())
@@ -428,7 +443,7 @@ func (d *Device) Scroll(rowAmount int) {
 		} else {
 			// use softscroll
 			// probably adding a bug here related to xform.Translate
-			softRegionScroll(d.Render.Image, d.Render.Image.Bounds(), rowAmount*d.Render.cell.Dy())
+			softRegionScroll(d.Render.Image, d.Render.Bounds(), rowAmount*d.Render.cell.Dy())
 		}
 
 		// fill in scrolls section with background
@@ -498,8 +513,8 @@ func (d *Device) MoveCursorAbs(x, y int) {
 }
 
 func (d *Device) setScrollRegion(start, end int) {
-	d.scrollArea.Min.X = d.Render.Image.Bounds().Min.X
-	d.scrollArea.Max.X = d.Render.Image.Bounds().Max.X
+	d.scrollArea.Min.X = d.Render.Bounds().Min.X
+	d.scrollArea.Max.X = d.Render.Bounds().Max.X
 
 	d.scrollRegion[0] = bound((start - 1), 0, d.rows-1)
 	d.scrollRegion[1] = bound((end - 1), 0, d.rows-1)

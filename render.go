@@ -171,3 +171,10 @@ func (d *Device) clearAll() {
 		image.Point{},
 		draw.Src)
 }
+
+// TermBounds returns the image.Rectangle that aligns with terminal cell boundaries
+func (r Render) Bounds() image.Rectangle {
+	// TODO make this work better--we should be able to align/offset
+	// the terminal anywhere within the backing image.Image
+	return r.bounds
+}
