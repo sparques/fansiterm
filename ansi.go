@@ -278,6 +278,7 @@ func (d *Device) HandleCSISequence(seq []rune) {
 		d.scrollRegion, d.scrollArea = r, a
 	case 'P': // DCH Delete Character. Delete character(s) to the right of the cursor, shifting as needed
 		curs := d.cursorPt()
+		// TODO: use acceleration where possible
 		softVectorScroll(d.Render.Image,
 			image.Rectangle{Min: curs, Max: curs.Add(image.Pt(d.ColsRemaining()*d.Render.cell.Dx(), d.Render.cell.Dy()))},
 			image.Pt(d.Render.cell.Dx()*args[0], 0))
@@ -490,7 +491,7 @@ func (d *Device) HandleCSISequence(seq []rune) {
 		case 18: // report terminal size in cells
 			fmt.Fprintf(d.Output, "\x1b[8;%d:%dt", d.rows, d.cols)
 		case 19: // report terminal size in pixels
-			fmt.Fprintf(d.Output, "\x1b[9;%d;%dt", d.Render.Image.Bounds().Dy(), d.Render.Image.Bounds().Dx())
+			fmt.Fprintf(d.Output, "\x1b[9;%d;%dt", d.Render.Bounds().Dy(), d.Render.Bounds().Dx())
 		}
 	case 'u': // restore cursor position
 		d.cursor.col = d.cursor.prevPos[0]

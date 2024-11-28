@@ -519,11 +519,13 @@ func (d *Device) setScrollRegion(start, end int) {
 	d.scrollRegion[0] = bound((start - 1), 0, d.rows-1)
 	d.scrollRegion[1] = bound((end - 1), 0, d.rows-1)
 
-	d.scrollArea.Min.Y = d.scrollRegion[0] * d.Render.cell.Dy()
+	d.scrollArea.Min.Y = (d.scrollRegion[0] * d.Render.cell.Dy())
 	// + 1 because internally we are 0-indexed, but ANSI escape codes are 1-indexed
 	// + another 1 because we want the bottom of the nth cell, not the top
 	d.scrollArea.Max.Y = (d.scrollRegion[1] + 1) * d.Render.cell.Dy()
 
+	// honor our offset
+	d.scrollArea = d.scrollArea.Add(d.Render.bounds.Min)
 	//draw.Draw(d.Render, d.scrollArea, xform.InvertColors(d.Render), d.scrollArea.Min, draw.Src)
 
 	// if you mess up setting the scroll area, just forget the whole thing.
