@@ -92,6 +92,116 @@ func (fts *FontTileSet) DrawTile(r rune, dst draw.Image, pt image.Point, fg colo
 	}
 }
 
+type BitColor bool
+
+func (bc BitColor) RGBA() (r, g, b, a uint32) {
+	if bc {
+		a = 0xFF * 0x101
+	}
+	return
+}
+
+var BitColorModel = color.ModelFunc(bitColorModel)
+
+func bitColorModel(c color.Color) color.Color {
+	if b, ok := c.(BitColor); ok {
+		return b
+	}
+	_, _, _, a := c.RGBA()
+	if a > 0xFF*0x101/2 {
+		return BitColor(true)
+	}
+	return BitColor(false)
+}
+
+// AlphaCell is a 1-bit-depth image.Image that is always 8x16
+type AlphaCell struct {
+	Pix [16]uint8
+}
+
+func (ac *AlphaCell) At(x, y int) color.Color {
+	return BitColor((ac.Pix[y]<<x)&8 == 8)
+}
+
+func (ac *AlphaCell) Set(x, y int, c color.Color) {
+	native := bitColorModel(c).(BitColor)
+	if native {
+		ac.Pix[y] |= 0x80 >> x
+	} else {
+		ac.Pix[y] &= ^(0x80 >> x)
+	}
+}
+
+func (ac *AlphaCell) Bounds() image.Rectangle {
+	return image.Rect(0, 0, 8, 16)
+}
+
+func (ac *AlphaCell) ColorModel() color.Model {
+	return BitColorModel
+}
+
+// Alpha1 is a single bit-depth image.Image.
+type Alpha1 struct {
+	Pix    []uint8
+	Stride int
+	Rect   image.Rectangle
+}
+
+func (a *Alpha1) At(x, y int) (c color.Color) {
+	if !image.Pt(x, y).In(a.Rect) {
+		return BitColor(false)
+	}
+	return BitColor((a.Pix[y*a.Stride+x/8]<<(x%8))&8 == 8)
+}
+
+func (a *Alpha1) Set(x, y int, c color.Color) {
+	native := bitColorModel(c).(BitColor)
+
+	if native {
+		a.Pix[y*a.Stride+x/8] |= 1 << (x % 8)
+	} else {
+		a.Pix[y*a.Stride+x/8] &= ^(1 << (x % 8))
+	}
+}
+
+type AlphaCellTileSet struct {
+	image.Rectangle
+	// Glyphs maps a rune to a slice of alpha pixel data
+	Glyphs map[rune][16]uint8
+}
+
+func (ats *AlphaCellTileSet) Glyph(r rune) *AlphaCell {
+	return &AlphaCell{
+		Pix: ats.Glyphs[r],
+	}
+}
+
+func (ats *AlphaCellTileSet) GetTile(r rune) image.Image {
+	return ats.Glyph(r)
+}
+
+func (ats *AlphaCellTileSet) DrawTile(r rune, dst draw.Image, pt image.Point, fg color.Color, bg color.Color) {
+	pix, ok := ats.Glyphs[r]
+	if !ok {
+		if Tiler(Fallback) != Tiler(ats) {
+			Fallback.DrawTile(r, dst, pt, fg, bg)
+			return
+		}
+		// fallback to fallback, use EmptyTile
+		pix = [16]uint8{}
+
+	}
+	for y := range len(pix) {
+		for x := 0; x < 8; x++ {
+			if (pix[y]>>(7-x))&1 == 1 {
+				dst.Set(pt.X+x, pt.Y+y, fg)
+			} else {
+				dst.Set(pt.X+x, pt.Y+y, bg)
+			}
+		}
+	}
+}
+
 // Remap lets you remap runes in a FontTileSet. This is useful, for example, to make it so
 // line-drawing mode can simply use the same font, but use unicode glyphs.
 type Remap struct {
@@ -189,6 +299,8 @@ func (fc FullColorTileSet) DrawTile(r rune, dst draw.Image, pt image.Point, fg c
 			switch alpha {
 			case 0x00:
 				dst.Set(pt.X+x, pt.Y+y, bg)
+			case 0xFF * 0x101:
+				dst.Set(pt.X+x, pt.Y+y, color.RGBA{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8), 255})
 			default:
 				bgr, bgg, bgb, _ := bg.RGBA()
 				dst.Set(pt.X+x, pt.Y+y,
