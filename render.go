@@ -20,6 +20,10 @@ var (
 	CursorUnderscore = underscoreRect
 )
 
+func (d *Device) UpdateAttr() {
+	d.updateAttr()
+}
+
 // updateAttr updates d.Render.active based on d.Attr.
 // TODO a name that doesn't suck
 func (d *Device) updateAttr() {
@@ -31,9 +35,9 @@ func (d *Device) updateAttr() {
 	// Bold and Itallic override G0 and G1
 	switch {
 	case d.attr.Bold:
-		d.Render.active.tileSet = d.Render.boldCharSet
+		d.Render.active.tileSet = d.Render.BoldCharSet
 	case d.attr.Italic:
-		d.Render.active.tileSet = d.Render.italicCharSet
+		d.Render.active.tileSet = d.Render.ItalicCharSet
 	case d.attr.ShiftOut:
 		d.Render.active.tileSet = d.Render.G1
 	default:

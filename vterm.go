@@ -10,7 +10,7 @@ import (
 
 	"github.com/sparques/fansiterm/tiles"
 	"github.com/sparques/fansiterm/tiles/fansi"
-	"github.com/sparques/fansiterm/tiles/inconsolata"
+	"github.com/sparques/fansiterm/tiles/sweet16"
 	"github.com/sparques/fansiterm/xform"
 	"github.com/sparques/gfx"
 )
@@ -94,15 +94,14 @@ type Render struct {
 	}
 	G0            tiles.Tiler
 	G1            tiles.Tiler
-	charSet       tiles.Tiler
-	altCharSet    tiles.Tiler
-	boldCharSet   tiles.Tiler
-	italicCharSet tiles.Tiler
+	CharSet       tiles.Tiler
+	AltCharSet    tiles.Tiler
+	BoldCharSet   tiles.Tiler
+	ItalicCharSet tiles.Tiler
 	useAltCharSet bool
 	cell          image.Rectangle
 	cursorFunc    cursorRectFunc
-	// Some displays require a flush / blit / sync call
-	// this could be called at the end of (*Device).Write().
+	// DisplayFunc is called after a write to the terminal. This is for some displays require a flush / blit / sync call.
 	DisplayFunc func()
 }
 
@@ -160,12 +159,12 @@ func New(cols, rows int, buf draw.Image) *Device {
 		attr: AttrDefault,
 		Render: Render{
 			Image:         buf,
-			G0:            inconsolata.Regular8x16,
+			G0:            sweet16.Regular8x16,
 			G1:            fansi.AltCharSet,
-			altCharSet:    fansi.AltCharSet,
-			charSet:       inconsolata.Regular8x16,
-			boldCharSet:   inconsolata.Bold8x16,
-			italicCharSet: &tiles.Italics{FontTileSet: inconsolata.Bold8x16},
+			AltCharSet:    fansi.AltCharSet,
+			CharSet:       sweet16.Regular8x16,
+			BoldCharSet:   sweet16.Bold8x16,
+			ItalicCharSet: &tiles.Italics{FontTileSet: sweet16.Bold8x16},
 			// italicCharSet: &tiles.Italics{FontTileSet: inconsolata.Regular8x16},
 			cell:       cell,
 			cursorFunc: blockRect,
@@ -282,6 +281,10 @@ func (d *Device) SetCursorStyle(style cursorRectFunc) {
 	d.showCursor()
 }
 
+func (d *Device) SetAttrDefault(attr Attr) {
+	d.attrDefault = attr
+}
+
 // VisualBell inverts the screen for a tenth of a second.
 func (d *Device) VisualBell() {
 	draw.Draw(d.Render, d.Render.Bounds(), xform.InvertColors(d.Render), image.Point{}, draw.Src)
@@ -293,7 +296,7 @@ func (d *Device) VisualBell() {
 // the absolute set cursor position escape sequence, writing to the terminal,
 // and then finally restoring cursor position. The offset is just the i'th
 // character on screen. Negative offset values are set to 0, values larger than
-// d.rows * d.cols are set to d.rows*d.cols.
+// d.rows * d.cols are set to d.rows*d.cols-1.
 func (d *Device) WriteAt(p []byte, off int64) (n int, err error) {
 	col, row := d.cursor.col, d.cursor.row
 	defer func() {
@@ -305,7 +308,7 @@ func (d *Device) WriteAt(p []byte, off int64) (n int, err error) {
 	if d.cursor.visible {
 		d.toggleCursor()
 	}
-	off = bound(off, 0, int64(d.rows*d.cols))
+	off = bound(off, 0, int64(d.rows*d.cols)-1)
 	d.cursor.row = int(off) / d.cols
 	d.cursor.col = int(off) % d.cols
 	return d.Write(p)
@@ -347,9 +350,6 @@ func (d *Device) Write(data []byte) (n int, err error) {
 
 	// var endIdx int
 	for i := 0; i < len(runes); i++ {
-		// if runes[i] < 0x1b {
-		// 	fmt.Printf("%02x\n", runes[i])
-		// }
 		switch runes[i] {
 		case '\a': // bell
 			if d.BellFunc != nil {
