@@ -94,7 +94,7 @@ func (d *Device) HandleEscSequence(seq []rune) {
 		d.cursor.col = d.cursor.prevPos[0]
 		d.cursor.row = d.cursor.prevPos[1]
 	case 'c': // reset
-		d.attrDefault = AttrDefault
+		d.attr = d.attrDefault
 		d.Render.useAltCharSet = false
 		d.clearAll()
 		d.MoveCursorAbs(1, 1)
@@ -113,21 +113,21 @@ func (d *Device) HandleEscSequence(seq []rune) {
 	case '(': // set G0
 		switch seq[2] {
 		case '0':
-			d.Render.G0 = d.Render.altCharSet
+			d.Render.G0 = d.Render.AltCharSet
 		case 'B':
 			fallthrough
 		default:
-			d.Render.G0 = d.Render.charSet
+			d.Render.G0 = d.Render.CharSet
 		}
 	case ')': // set G1
 		// B for regular, 0 for line drawing
 		switch seq[2] {
 		case '0':
-			d.Render.G1 = d.Render.altCharSet
+			d.Render.G1 = d.Render.AltCharSet
 		case 'B':
 			fallthrough
 		default:
-			d.Render.G1 = d.Render.charSet
+			d.Render.G1 = d.Render.CharSet
 		}
 	case '>': // auxilary keypad numeric mode
 		fallthrough
@@ -304,7 +304,7 @@ func (d *Device) HandleCSISequence(seq []rune) {
 		for i := 0; i < len(args); i++ {
 			switch args[i] {
 			case 0:
-				d.attr = AttrDefault
+				d.attr = d.attrDefault
 			case 1:
 				d.attr.Bold = true
 			case 22:
@@ -357,7 +357,7 @@ func (d *Device) HandleCSISequence(seq []rune) {
 			case 37:
 				d.attr.Fg = ColorWhite
 			case 39:
-				d.attr.Fg = AttrDefault.Fg
+				d.attr.Fg = d.attrDefault.Fg
 			case 40:
 				d.attr.Bg = ColorBlack
 			case 41:
@@ -375,7 +375,7 @@ func (d *Device) HandleCSISequence(seq []rune) {
 			case 47:
 				d.attr.Bg = ColorWhite
 			case 49:
-				d.attr.Bg = AttrDefault.Bg
+				d.attr.Bg = d.attrDefault.Bg
 			case 90:
 				d.attr.Fg = ColorBrightBlack
 			case 91:
