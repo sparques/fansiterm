@@ -206,7 +206,7 @@ func New(cols, rows int, buf draw.Image) *Device {
 // Fansiterm will only ever update / work on the rectangle it has claimed.
 // If you want to use an existing backing buffer and position that, use NewWithBuf and
 // use xform.SubImage() to locate the terminal.
-/* deprecated
+
 func NewAtResolution(x, y int, buf draw.Image) *Device {
 	// TODO: This is a crappy way of figuring out what font we're using. Do something else.
 	d := New(1, 1, nil)
@@ -214,28 +214,13 @@ func NewAtResolution(x, y int, buf draw.Image) *Device {
 	// which is what we want
 	cols := x / d.Render.cell.Max.X
 	rows := y / d.Render.cell.Max.Y
-	offset := image.Pt((x%d.Render.cell.Dx())/2, (y%d.Render.cell.Dy())/2)
-
-	//fmt.Println("Res:", x, "x", y, "Cols:", cols, "Rows:", rows, "Offset:", offset)
 
 	if buf == nil {
 		buf = image.NewRGBA(image.Rect(0, 0, x, y))
 	}
 
-	draw.Draw(buf, buf.Bounds(), image.Black, image.Point{}, draw.Src)
-
-	if offset.X == 0 && offset.Y == 0 {
-		// no offset needed, skip wrapping buf and save us some memory and cycles
-		return New(cols, rows, buf)
-	} else {
-		// return New(cols, rows, xform.Translate(buf, offset))
-		// return New(cols, rows, xform.NewImageTranslate(offset, buf))
-		return New(cols, rows,
-			xform.SubImage(buf, image.Rect(0, 0, cols*d.Render.cell.Dx(), rows*d.Render.cell.Dy()).Add(offset)))
-	}
-
+	return New(cols, rows, buf)
 }
-*/
 
 // NewWithBuf uses buf as its target. NewWithBuf() will panic if called against a
 // nil buf. If using fansiterm with backing hardware, NewWithBuf is likely the way
