@@ -147,11 +147,19 @@ type Alpha1 struct {
 	Rect   image.Rectangle
 }
 
+func (a *Alpha1) ColorModel() color.Model {
+	return BitColorModel
+}
+
+func (a *Alpha1) Bounds() image.Rectangle {
+	return a.Rect
+}
+
 func (a *Alpha1) At(x, y int) (c color.Color) {
 	if !image.Pt(x, y).In(a.Rect) {
 		return BitColor(false)
 	}
-	return BitColor((a.Pix[y*a.Stride+x/8]<<(x%8))&8 == 8)
+	return BitColor((a.Pix[y*a.Stride+x/8]>>(x%8))&1 == 1)
 }
 
 func (a *Alpha1) Set(x, y int, c color.Color) {
