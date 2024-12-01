@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/sparques/fansiterm/tiles"
-	"github.com/sparques/fansiterm/tiles/fansi"
+	"github.com/sparques/fansiterm/tiles/drawing"
 	"github.com/sparques/fansiterm/tiles/sweet16"
 	"github.com/sparques/fansiterm/xform"
 	"github.com/sparques/gfx"
@@ -89,17 +89,18 @@ type Render struct {
 	draw.Image
 	bounds image.Rectangle
 	active struct {
-		tileSet tiles.Tiler
+		tileSet *tiles.Tiler
 		fg      Color
 		bg      Color
+		// G tracks our character sets, for now 0 and 1
+		g []*tiles.Tiler
+		// tracking shift-in/out
+		shift int
 	}
-	G0            tiles.Tiler
-	G1            tiles.Tiler
 	CharSet       tiles.Tiler
 	AltCharSet    tiles.Tiler
 	BoldCharSet   tiles.Tiler
 	ItalicCharSet tiles.Tiler
-	useAltCharSet bool
 	cell          image.Rectangle
 	cursorFunc    cursorRectFunc
 	// DisplayFunc is called after a write to the terminal. This is for some displays require a flush / blit / sync call.
@@ -110,6 +111,7 @@ type Config struct {
 	TabSize     int
 	CursorStyle int
 	CursorBlink bool
+	BoldColors  bool
 }
 
 type Attr struct {
@@ -120,7 +122,6 @@ type Attr struct {
 	Blink           bool
 	Reversed        bool
 	Italic          bool
-	ShiftOut        bool
 	Fg              Color
 	Bg              Color
 }
@@ -131,7 +132,27 @@ var AttrDefault = Attr{
 }
 
 var ConfigDefault = Config{
-	TabSize: 8,
+	TabSize:    8,
+	BoldColors: true,
+}
+
+var altToUnicode = map[rune]rune{
+	'0':  9608, // block
+	0x61: 9618, // 50% block
+	0x68: 9617, // 25% block
+	0x6a: 9496, // bottom right corner
+	0x6b: 9488, // top right corner
+	0x6c: 9484, // top left corner
+	0x6d: 9492, // bottom left corner
+	0x6e: 9532, // cross
+	'q':  9472, // horizontal
+	'r':  9472, // horizontal
+
+	0x74: 9500,   // T right
+	0x75: 9508,   // T left
+	0x76: 9524,   // T up
+	0x77: 9516,   // T down
+	0x78: 0x2502, // vertical
 }
 
 // New returns an initialized *Device. If buf is nil, an internal buffer is used. Otherwise
@@ -168,6 +189,10 @@ func New(cols, rows int, buf draw.Image) *Device {
 	// on them.
 	draw.Draw(buf, bounds, AttrDefault.Bg, image.Point{}, draw.Src)
 
+	charSet := tiles.NewMultiTileSet(sweet16.Regular8x16, drawing.TileSet)
+	altCharSet := tiles.NewRemap(charSet)
+	altCharSet.Map = altToUnicode
+
 	d := &Device{
 		cols: cols,
 		rows: rows,
@@ -175,15 +200,12 @@ func New(cols, rows int, buf draw.Image) *Device {
 		Render: Render{
 			Image:         buf,
 			bounds:        bounds,
-			G0:            sweet16.Regular8x16,
-			G1:            fansi.AltCharSet,
-			AltCharSet:    fansi.AltCharSet,
-			CharSet:       sweet16.Regular8x16,
+			AltCharSet:    altCharSet,
+			CharSet:       charSet,
 			BoldCharSet:   sweet16.Bold8x16,
 			ItalicCharSet: &tiles.Italics{FontTileSet: sweet16.Bold8x16},
-			// italicCharSet: &tiles.Italics{FontTileSet: inconsolata.Regular8x16},
-			cell:       cell,
-			cursorFunc: blockRect,
+			cell:          cell,
+			cursorFunc:    blockRect,
 		},
 		cursor: Cursor{
 			show: true,
@@ -195,6 +217,10 @@ func New(cols, rows int, buf draw.Image) *Device {
 		scrollRegion: [2]int{0, rows - 1},
 	}
 
+	d.Render.active.g = make([]*tiles.Tiler, 2)
+	d.Render.active.g[0] = &d.Render.CharSet
+	d.Render.active.g[1] = &d.Render.AltCharSet
+	d.Render.active.tileSet = d.Render.active.g[0]
 	d.updateAttr()
 
 	return d
@@ -289,9 +315,9 @@ func (d *Device) SetAttrDefault(attr Attr) {
 
 // VisualBell inverts the screen for a tenth of a second.
 func (d *Device) VisualBell() {
-	draw.Draw(d.Render, d.Render.Bounds(), xform.InvertColors(d.Render), image.Point{}, draw.Src)
+	draw.Draw(d.Render.Image, d.Render.Bounds(), xform.InvertColors(d.Render.Image), d.Render.Bounds().Min, draw.Src)
 	time.Sleep(time.Second / 10)
-	draw.Draw(d.Render, d.Render.Bounds(), xform.InvertColors(d.Render), image.Point{}, draw.Src)
+	draw.Draw(d.Render.Image, d.Render.Bounds(), xform.InvertColors(d.Render.Image), d.Render.Bounds().Min, draw.Src)
 }
 
 // WriteAt works like calling the save cursor position escape sequence, then
@@ -380,10 +406,10 @@ func (d *Device) Write(data []byte) (n int, err error) {
 				d.cursor.row++
 			}
 		case 0x0E: // shift out (use alt character set)
-			d.attr.ShiftOut = true
+			d.Render.active.shift = 1
 			d.updateAttr()
 		case 0x0F: // shift in (use regular char set)
-			d.attr.ShiftOut = false
+			d.Render.active.shift = 0
 			d.updateAttr()
 		case 0x1b: // ESC aka ^[
 			n, err = consumeEscSequence(runes[i:])

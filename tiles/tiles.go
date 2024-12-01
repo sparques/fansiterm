@@ -384,11 +384,13 @@ type Italics struct {
 }
 
 func (i Italics) DrawTile(r rune, dst draw.Image, pt image.Point, fg color.Color, bg color.Color) {
-	if _, ok := i.FontTileSet.Glyphs[r]; ok {
-		drawTile(dst, pt, i.FontTileSet.Glyph(r), fg, bg)
+	g, ok := i.GetTile(r)
+	if !ok {
+		drawTile(dst, pt, EmptyTile, fg, bg)
 		return
 	}
-	drawTile(dst, pt, EmptyTile, fg, bg)
+
+	drawTile(dst, pt, g, fg, bg)
 }
 
 func (i Italics) GetTile(r rune) (image.Image, bool) {

@@ -5,6 +5,7 @@ import (
 	"image/draw"
 	_ "image/png"
 
+	"github.com/sparques/fansiterm/tiles"
 	"github.com/sparques/fansiterm/xform"
 	"github.com/sparques/gfx"
 )
@@ -32,17 +33,30 @@ func (d *Device) updateAttr() {
 		d.Render.active.fg, d.Render.active.bg = d.attr.Bg, d.attr.Fg
 	}
 
-	// Bold and Itallic override G0 and G1
-	switch {
-	case d.attr.Bold:
-		d.Render.active.tileSet = d.Render.BoldCharSet
-	case d.attr.Italic:
-		d.Render.active.tileSet = d.Render.ItalicCharSet
-	case d.attr.ShiftOut:
-		d.Render.active.tileSet = d.Render.G1
-	default:
-		d.Render.active.tileSet = d.Render.G0
+	if d.Render.active.g[d.Render.active.shift] == &d.Render.CharSet {
+		switch {
+		case d.attr.Bold:
+			d.Render.active.tileSet = &d.Render.BoldCharSet
+		case d.attr.Italic:
+			d.Render.active.tileSet = &d.Render.ItalicCharSet
+		default:
+			d.Render.active.tileSet = d.Render.active.g[d.Render.active.shift]
+		}
+	} else {
+		// altCharSet in use
+		var ts tiles.Tiler
+		switch {
+		case d.attr.Bold:
+			ts = tiles.NewMultiTileSet(d.Render.AltCharSet, d.Render.BoldCharSet)
+		case d.attr.Italic:
+			ts = tiles.NewMultiTileSet(d.Render.AltCharSet, d.Render.ItalicCharSet)
+		default:
+			ts = d.Render.AltCharSet
+		}
+		d.Render.active.tileSet = &ts
 	}
+
+	return
 }
 
 // cursorPt returns the location of the cursor as an image.Point
@@ -55,7 +69,7 @@ func (d *Device) cursorPt() image.Point {
 // It simply renders a single rune at the cursor position. It is up to the caller
 // of RenderRune to process any control sequences / handle non-printing characters.
 func (d *Device) RenderRune(sym rune) {
-	d.Render.active.tileSet.DrawTile(sym, d.Render.Image, d.cursorPt(), d.Render.active.fg, d.Render.active.bg)
+	(*d.Render.active.tileSet).DrawTile(sym, d.Render.Image, d.cursorPt(), d.Render.active.fg, d.Render.active.bg)
 
 	if d.attr.Strike {
 		// draw a single pixel high line through the center of the whole cell
@@ -172,9 +186,7 @@ func (d *Device) clearAll() {
 		draw.Src)
 }
 
-// TermBounds returns the image.Rectangle that aligns with terminal cell boundaries
+// Bounds returns the image.Rectangle that aligns with terminal cell boundaries
 func (r Render) Bounds() image.Rectangle {
-	// TODO make this work better--we should be able to align/offset
-	// the terminal anywhere within the backing image.Image
 	return r.bounds
 }

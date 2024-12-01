@@ -95,7 +95,9 @@ func (d *Device) HandleEscSequence(seq []rune) {
 		d.cursor.row = d.cursor.prevPos[1]
 	case 'c': // reset
 		d.attr = d.attrDefault
-		d.Render.useAltCharSet = false
+		d.Render.active.g[0] = &d.Render.CharSet
+		d.Render.active.g[1] = &d.Render.AltCharSet
+		d.Render.active.tileSet = d.Render.active.g[0]
 		d.clearAll()
 		d.MoveCursorAbs(1, 1)
 		d.scrollArea = image.Rectangle{}
@@ -113,21 +115,25 @@ func (d *Device) HandleEscSequence(seq []rune) {
 	case '(': // set G0
 		switch seq[2] {
 		case '0':
-			d.Render.G0 = d.Render.AltCharSet
+			// d.Render.G0 = d.Render.AltCharSet
+			d.Render.active.g[0] = &d.Render.AltCharSet
 		case 'B':
 			fallthrough
 		default:
-			d.Render.G0 = d.Render.CharSet
+			// d.Render.G0 = d.Render.CharSet
+			d.Render.active.g[0] = &d.Render.CharSet
 		}
 	case ')': // set G1
 		// B for regular, 0 for line drawing
 		switch seq[2] {
 		case '0':
-			d.Render.G1 = d.Render.AltCharSet
+			// d.Render.G1 = d.Render.AltCharSet
+			d.Render.active.g[1] = &d.Render.AltCharSet
 		case 'B':
 			fallthrough
 		default:
-			d.Render.G1 = d.Render.CharSet
+			// d.Render.G1 = d.Render.CharSet
+			d.Render.active.g[1] = &d.Render.CharSet
 		}
 	case '>': // auxilary keypad numeric mode
 		fallthrough
@@ -308,8 +314,62 @@ func (d *Device) HandleCSISequence(seq []rune) {
 				d.attr = d.attrDefault
 			case 1:
 				d.attr.Bold = true
+				if d.Config.BoldColors {
+					// if BoldColors is enabled, setting bold bumps
+					// the fg color
+					switch d.attr.Fg {
+					case ColorBlack:
+						d.attr.Fg = ColorBrightBlack
+					case ColorRed:
+						d.attr.Fg = ColorBrightRed
+					case ColorGreen:
+						d.attr.Fg = ColorBrightGreen
+					case ColorYellow:
+						d.attr.Fg = ColorBrightYellow
+					case ColorBlue:
+						d.attr.Fg = ColorBrightBlue
+					case ColorMagenta:
+						d.attr.Fg = ColorBrightMagenta
+					case ColorCyan:
+						d.attr.Fg = ColorBrightCyan
+					case ColorWhite:
+						d.attr.Fg = ColorBrightWhite
+					}
+					// don't modify color if we're not using one of the
+					// vga colors. There is a corner case of someone using
+					// a 24-bit or 256-color color, fixible by using a flag
+					// indicating if we've set a ANSI color or not, but...
+					// meh.
+				}
 			case 22:
 				d.attr.Bold = false
+				if d.Config.BoldColors {
+					// if BoldColors is enabled, unsetting bold drops
+					// the fg color
+					switch d.attr.Fg {
+					case ColorBrightBlack:
+						d.attr.Fg = ColorBlack
+					case ColorBrightRed:
+						d.attr.Fg = ColorRed
+					case ColorBrightGreen:
+						d.attr.Fg = ColorGreen
+					case ColorBrightYellow:
+						d.attr.Fg = ColorYellow
+					case ColorBrightBlue:
+						d.attr.Fg = ColorBlue
+					case ColorBrightMagenta:
+						d.attr.Fg = ColorMagenta
+					case ColorBrightCyan:
+						d.attr.Fg = ColorCyan
+					case ColorBrightWhite:
+						d.attr.Fg = ColorWhite
+					}
+					// don't modify color if we're not using one of the
+					// vga colors. There is a corner case of someone using
+					// a 24-bit or 256-color color, fixible by using a flag
+					// indicating if we've set a ANSI color or not, but...
+					// meh.
+				}
 			case 3:
 				d.attr.Italic = true
 			case 23:
@@ -333,30 +393,59 @@ func (d *Device) HandleCSISequence(seq []rune) {
 			case 9:
 				d.attr.Strike = true
 			// case 10:
-			// no alternate fonts supported (yet)
-			//d.attr.LineDrawing = false
+			// 	d.Render.active.tileSet = d.Render.G0
 			// case 11:
-			// line drawing?!
-			// is this the same as shift out? or setting
-			//d.attr.LineDrawing = true
+			// 	d.Render.active.tileSet = d.Render.G1
 			case 29:
 				d.attr.Strike = false
 			case 30:
-				d.attr.Fg = ColorBlack
+				if d.Config.BoldColors && d.attr.Bold {
+					d.attr.Fg = ColorBrightBlack
+				} else {
+					d.attr.Fg = ColorBlack
+				}
 			case 31:
-				d.attr.Fg = ColorRed
+				if d.Config.BoldColors && d.attr.Bold {
+					d.attr.Fg = ColorBrightRed
+				} else {
+					d.attr.Fg = ColorRed
+				}
 			case 32:
-				d.attr.Fg = ColorGreen
+				if d.Config.BoldColors && d.attr.Bold {
+					d.attr.Fg = ColorBrightGreen
+				} else {
+					d.attr.Fg = ColorGreen
+				}
 			case 33:
-				d.attr.Fg = ColorYellow
+				if d.Config.BoldColors && d.attr.Bold {
+					d.attr.Fg = ColorBrightYellow
+				} else {
+					d.attr.Fg = ColorYellow
+				}
 			case 34:
-				d.attr.Fg = ColorBlue
+				if d.Config.BoldColors && d.attr.Bold {
+					d.attr.Fg = ColorBrightBlue
+				} else {
+					d.attr.Fg = ColorBlue
+				}
 			case 35:
-				d.attr.Fg = ColorMagenta
+				if d.Config.BoldColors && d.attr.Bold {
+					d.attr.Fg = ColorBrightMagenta
+				} else {
+					d.attr.Fg = ColorMagenta
+				}
 			case 36:
-				d.attr.Fg = ColorCyan
+				if d.Config.BoldColors && d.attr.Bold {
+					d.attr.Fg = ColorBrightCyan
+				} else {
+					d.attr.Fg = ColorCyan
+				}
 			case 37:
-				d.attr.Fg = ColorWhite
+				if d.Config.BoldColors && d.attr.Bold {
+					d.attr.Fg = ColorBrightWhite
+				} else {
+					d.attr.Fg = ColorWhite
+				}
 			case 39:
 				d.attr.Fg = d.attrDefault.Fg
 			case 40:

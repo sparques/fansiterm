@@ -25,7 +25,7 @@ var (
 	ColorCyan          = NewOpaqueColor(0, 170, 170)
 	ColorBrightCyan    = NewOpaqueColor(85, 255, 255)
 	// Okay, I deviated from VGA colors here. VGA "white" is way too gray.
-	ColorWhite = NewOpaqueColor(240, 240, 240)
+	ColorWhite = NewOpaqueColor(200, 200, 200)
 	// ColorWhite       = NewOpaqueColor(170, 170, 170)
 	ColorBrightWhite = NewOpaqueColor(255, 255, 255)
 )
