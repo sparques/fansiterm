@@ -19,7 +19,7 @@ var Fallback = &fallback{}
 
 type Tiler interface {
 	DrawTile(r rune, dst draw.Image, pt image.Point, fg color.Color, bg color.Color)
-	GetTile(r rune) image.Image
+	GetTile(r rune) (image.Image, bool)
 }
 
 type FontTileSet struct {
@@ -47,8 +47,11 @@ func (fts *FontTileSet) Glyph(r rune) *image.Alpha {
 	}
 }
 
-func (fts *FontTileSet) GetTile(r rune) image.Image {
-	return fts.Glyph(r)
+func (fts *FontTileSet) GetTile(r rune) (image.Image, bool) {
+	if _, ok := fts.Glyphs[r]; !ok {
+		return nil, false
+	}
+	return fts.Glyph(r), true
 }
 
 func (fts *FontTileSet) SetTile(r rune, img image.Image) {
@@ -90,6 +93,44 @@ func (fts *FontTileSet) DrawTile(r rune, dst draw.Image, pt image.Point, fg colo
 			}
 		}
 	}
+}
+
+// MultiTileSet aggregates a set of Tilers together so that if one Tiler is missing a glyph, the
+// next Tiler is used and so on. The order of the set is the order of the search. If no Tilers
+// contain the desired tile, EmptyTile is returned. Note this requires the Tilers' GetRune
+// method to return nil if the tile is not found.
+type MultiTileSet struct {
+	sets []Tiler
+}
+
+func NewMultiTileSet(sets ...Tiler) *MultiTileSet {
+	return &MultiTileSet{
+		sets: sets,
+	}
+}
+
+func (mts *MultiTileSet) GetTile(r rune) (image.Image, bool) {
+	for _, ts := range mts.sets {
+		t, ok := ts.GetTile(r)
+		if ok {
+			return t, true
+		}
+	}
+
+	return nil, false
+}
+
+func (mts *MultiTileSet) DrawTile(r rune, dst draw.Image, pt image.Point, fg color.Color, bg color.Color) {
+	for _, ts := range mts.sets {
+		_, ok := ts.GetTile(r)
+		if ok {
+			ts.DrawTile(r, dst, pt, fg, bg)
+			return
+		}
+	}
+
+	// No tile found? Fallback to EmptyTile
+	drawTile(dst, pt, EmptyTile, fg, bg)
 }
 
 type BitColor bool
@@ -159,16 +200,16 @@ func (a *Alpha1) At(x, y int) (c color.Color) {
 	if !image.Pt(x, y).In(a.Rect) {
 		return BitColor(false)
 	}
-	return BitColor((a.Pix[y*a.Stride+x/8]>>(x%8))&1 == 1)
+	return BitColor((a.Pix[y*a.Stride+x/8]<<(x%8))&0x80 == 0x80)
 }
 
 func (a *Alpha1) Set(x, y int, c color.Color) {
 	native := bitColorModel(c).(BitColor)
 
 	if native {
-		a.Pix[y*a.Stride+x/8] |= 1 << (x % 8)
+		a.Pix[y*a.Stride+x/8] |= 0x80 >> (x % 8)
 	} else {
-		a.Pix[y*a.Stride+x/8] &= ^(1 << (x % 8))
+		a.Pix[y*a.Stride+x/8] &= ^(0x80 >> (x % 8))
 	}
 }
 
@@ -178,14 +219,24 @@ type AlphaCellTileSet struct {
 	Glyphs map[rune][16]uint8
 }
 
+func NewAlphaCellTileSet() *AlphaCellTileSet {
+	return &AlphaCellTileSet{
+		Rectangle: image.Rect(0, 0, 8, 16),
+		Glyphs:    make(map[rune][16]uint8),
+	}
+}
+
 func (ats *AlphaCellTileSet) Glyph(r rune) *AlphaCell {
 	return &AlphaCell{
 		Pix: ats.Glyphs[r],
 	}
 }
 
-func (ats *AlphaCellTileSet) GetTile(r rune) image.Image {
-	return ats.Glyph(r)
+func (ats *AlphaCellTileSet) GetTile(r rune) (image.Image, bool) {
+	if _, ok := ats.Glyphs[r]; ok {
+		return ats.Glyph(r), true
+	}
+	return nil, false
 }
 
 func (ats *AlphaCellTileSet) DrawTile(r rune, dst draw.Image, pt image.Point, fg color.Color, bg color.Color) {
@@ -213,14 +264,14 @@ func (ats *AlphaCellTileSet) DrawTile(r rune, dst draw.Image, pt image.Point, fg
 // Remap lets you remap runes in a FontTileSet. This is useful, for example, to make it so
 // line-drawing mode can simply use the same font, but use unicode glyphs.
 type Remap struct {
-	*FontTileSet
-	Map map[rune]rune
+	tileSet Tiler
+	Map     map[rune]rune
 }
 
-func NewRemap(base *FontTileSet) *Remap {
+func NewRemap(base Tiler) *Remap {
 	return &Remap{
-		FontTileSet: base,
-		Map:         make(map[rune]rune),
+		tileSet: base,
+		Map:     make(map[rune]rune),
 	}
 }
 
@@ -228,21 +279,21 @@ func (remap *Remap) DrawTile(r rune, dst draw.Image, pt image.Point, fg color.Co
 	if newr, ok := remap.Map[r]; ok {
 		r = newr
 	}
-	remap.FontTileSet.DrawTile(r, dst, pt, fg, bg)
+	remap.tileSet.DrawTile(r, dst, pt, fg, bg)
 }
 
-func (remap *Remap) GetTile(r rune) image.Image {
+func (remap *Remap) GetTile(r rune) (image.Image, bool) {
 	if newr, ok := remap.Map[r]; ok {
 		r = newr
 	}
-	return remap.FontTileSet.Glyph(r)
+	return remap.tileSet.GetTile(r)
 }
 
 // fallback implements Tiler such that all runes return EmptyTile
 type fallback struct{}
 
-func (*fallback) GetTile(rune) image.Image {
-	return EmptyTile
+func (*fallback) GetTile(rune) (image.Image, bool) {
+	return EmptyTile, true
 }
 
 func (*fallback) DrawTile(r rune, dst draw.Image, pt image.Point, fg color.Color, bg color.Color) {
@@ -257,6 +308,9 @@ func NewTileSet() TileSet {
 }
 
 func (ts TileSet) GetTile(r rune) image.Image {
+	if _, ok := ts[r]; !ok {
+		return nil
+	}
 	return ts[r]
 }
 
@@ -330,32 +384,20 @@ type Italics struct {
 }
 
 func (i Italics) DrawTile(r rune, dst draw.Image, pt image.Point, fg color.Color, bg color.Color) {
-	if _, ok := i.FontTileSet.Glyphs[r]; !ok {
-		drawTile(dst, pt, EmptyTile, fg, bg)
+	if _, ok := i.FontTileSet.Glyphs[r]; ok {
+		drawTile(dst, pt, i.FontTileSet.Glyph(r), fg, bg)
 		return
 	}
-	drawTile(dst, pt, i.GetTile(r), fg, bg)
+	drawTile(dst, pt, EmptyTile, fg, bg)
 }
 
-func (i Italics) GetTile(r rune) image.Image {
-	return rotateImage(i.FontTileSet.GetTile(r), -10)
+func (i Italics) GetTile(r rune) (image.Image, bool) {
+	g, ok := i.FontTileSet.GetTile(r)
+	return rotateImage(g, -10), ok
 }
 
 type Bold struct {
 	*FontTileSet
-}
-
-func (b Bold) DrawTile(r rune, dst draw.Image, pt image.Point, fg color.Color, bg color.Color) {
-	if _, ok := b.FontTileSet.Glyphs[r]; !ok {
-		drawTile(dst, pt, EmptyTile, fg, bg)
-		return
-	}
-	drawTile(dst, pt, b.GetTile(r), fg, bg)
-}
-
-func (b Bold) GetTile(r rune) image.Image {
-	// todo, composite the same tile with itself here shifted by one pixel to fake "bold"
-	return b.FontTileSet.GetTile(r)
 }
 
 // drawTile is a broadly compatible, if not efficient, way to draw a tile.
