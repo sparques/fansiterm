@@ -122,6 +122,7 @@ type Attr struct {
 	Blink           bool
 	Reversed        bool
 	Italic          bool
+	Conceal         bool
 	Fg              Color
 	Bg              Color
 }

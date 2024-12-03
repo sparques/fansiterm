@@ -3,9 +3,12 @@ package fansiterm
 // ansi.go is largely just an implementation of https://en.wikipedia.org/wiki/ANSI_escape_code
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
+	"image/draw"
 	"strconv"
 	"strings"
 
@@ -27,12 +30,12 @@ func consumeEscSequence(data []rune) (n int, err error) {
 		return 0, errEscapeSequenceIncomplete
 	}
 	switch data[1] {
-	case 'X', ']', 'P': // SOS, OSC, and DCS
+	case 'X', ']', 'P', '/': // SOS, OSC, DCS, and my own private sequence
 		// For Start of String, Operating System Command, and Device Control String, read
 		// until we encounter String Terminator, ESC\
 		for n = 1; n < len(data); n++ {
 			// handle ESC]R
-			if n == 2 && data[n] == 'R' {
+			if n == 2 && data[n] == 'R' && data[n-1] == ']' {
 				return n + 2, nil
 			}
 			if data[n] == '\a' || (data[n-1] == 0x1b && data[n] == '\\') {
@@ -101,7 +104,7 @@ func (d *Device) HandleEscSequence(seq []rune) {
 		d.clearAll()
 		d.MoveCursorAbs(1, 1)
 		d.scrollArea = image.Rectangle{}
-		d.scrollRegion = [2]int{0, d.rows}
+		d.scrollRegion = [2]int{0, d.rows - 1}
 	case '[':
 		d.HandleCSISequence(seq[2:])
 	case ']':
@@ -135,6 +138,8 @@ func (d *Device) HandleEscSequence(seq []rune) {
 			// d.Render.G1 = d.Render.CharSet
 			d.Render.active.g[1] = &d.Render.CharSet
 		}
+	case '/':
+		d.HandleFansiSequence(seq[2:])
 	case '>': // auxilary keypad numeric mode
 		fallthrough
 	case '=': // auxilary keypad application mode
@@ -149,12 +154,94 @@ func (d *Device) HandleEscSequence(seq []rune) {
 
 func trimST(seq []rune) []rune {
 	switch {
-	case seq[len(seq)-1] == '\b':
+	case seq[len(seq)-1] == '\a':
 		return seq[:len(seq)-1]
 	case seq[len(seq)-2] == 0x1b && seq[len(seq)-1] == '\\':
 		return seq[:len(seq)-2]
 	default:
 		return seq
+	}
+}
+
+func (d *Device) HandleFansiSequence(seq []rune) {
+	seq = trimST(seq)
+	if len(seq) == 0 {
+		// Doing nothing seems safe...
+		return
+	}
+	switch seq[0] {
+	case 'B': // B for Blit
+	case 'C': // C for Cell
+		// ESC/C<pixdata>ESC\
+		// ESC/C receives pixel data and puts it in the cursor's current position.
+		// The data is serialized binary pixel values, rgb, one byte per channel, base64 encoded.
+		seq = seq[1:]
+		pixData, err := base64.StdEncoding.DecodeString(string(seq))
+		if err != nil {
+			return
+		}
+
+		img := &RGBImage{
+			Pix:       pixData,
+			Rectangle: d.Render.cell,
+		}
+		draw.Draw(d.Render, d.Render.cell.Add(d.cursorPt()), img, image.Point{}, draw.Over)
+
+	case 'F': // F for Fill
+		var (
+			rect image.Rectangle
+			c    color.RGBA
+		)
+		c.A = 255
+
+		if strings.Contains(string(seq), "#") {
+			fmt.Sscanf(string(seq), "F%d,%d;%d,%d;#%2x%2x%2x", &rect.Min.X, &rect.Min.Y, &rect.Max.X, &rect.Max.Y, &c.R, &c.G, &c.B)
+		} else {
+			fmt.Sscanf(string(seq), "F%d,%d;%d,%d;%d,%d,%d", &rect.Min.X, &rect.Min.Y, &rect.Max.X, &rect.Max.Y, &c.R, &c.G, &c.B)
+		}
+
+		rect = rect.Canon()
+		d.Fill(rect, c)
+	case 'R': // R for radius (to make circles)
+		var (
+			x, y, r int
+			rect    image.Rectangle
+			c       color.RGBA
+		)
+		c.A = 255
+
+		if strings.Contains(string(seq), "#") {
+			fmt.Sscanf(string(seq), "R%d,%d,%d;#%2x%2x%2x", &x, &y, &r, &c.R, &c.G, &c.B)
+		} else {
+			fmt.Sscanf(string(seq), "R%d,%d,%d;%d,%d,%d", &x, &y, &r, &c.R, &c.G, &c.B)
+		}
+
+		rect.Min.X = x - r
+		rect.Max.X = x + r
+		rect.Min.Y = y - r
+		rect.Max.Y = y + r
+
+		rect = rect.Canon()
+		for yp := rect.Min.Y; yp <= rect.Max.Y; yp++ {
+			for xp := rect.Min.X; xp <= rect.Max.X; xp++ {
+				pt := image.Pt(xp, yp).Add(d.Render.bounds.Min)
+				if r*r >= (xp-x)*(xp-x)+(yp-y)*(yp-y) {
+					d.Render.Set(pt.X, pt.Y, c)
+				}
+			}
+		}
+	case 'S': // S for Set
+		var (
+			pt image.Point
+			c  color.RGBA
+		)
+		if strings.Contains(string(seq), "#") {
+			fmt.Sscanf(string(seq), "S%d,%d;#%2x%2x%2x", &pt.X, &pt.Y, &c.R, &c.G, &c.B)
+		} else {
+			fmt.Sscanf(string(seq), "S%d,%d;%d,%d,%d", &pt.X, &pt.Y, &c.R, &c.G, &c.B)
+		}
+		pt = pt.Add(d.Render.bounds.Min).Mod(d.Render.bounds)
+		d.Render.Set(pt.X, pt.Y, c)
 	}
 }
 
@@ -390,6 +477,10 @@ func (d *Device) HandleCSISequence(seq []rune) {
 				d.attr.Reversed = true
 			case 27:
 				d.attr.Reversed = false
+			case 8:
+				d.attr.Conceal = true
+			case 28:
+				d.attr.Conceal = false
 			case 9:
 				d.attr.Strike = true
 			// case 10:

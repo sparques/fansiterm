@@ -2,6 +2,7 @@ package fansiterm
 
 import (
 	"image"
+	"image/color"
 	"image/draw"
 	_ "image/png"
 
@@ -108,6 +109,15 @@ func (d *Device) RenderRune(sym rune) {
 				draw.Src)
 		}
 	}
+
+	// conceal should be last
+	if d.attr.Conceal {
+		draw.Draw(d.Render,
+			d.Render.cell.Bounds().Add(d.cursorPt()),
+			xform.Blur(d.Render),
+			d.cursorPt(),
+			draw.Src)
+	}
 }
 
 func blockRect(cell image.Rectangle, pt image.Point) image.Rectangle {
@@ -149,6 +159,16 @@ func (d *Device) Image() image.Image {
 	return d.Render // d.Render or d.Render.Image?
 }
 
+func (d *Device) Fill(region image.Rectangle, c color.Color) {
+	region = region.Add(d.Render.bounds.Min).Intersect(d.Render.bounds)
+
+	if fillable, ok := d.Render.Image.(gfx.Filler); ok {
+		fillable.Fill(region, c)
+		return
+	}
+	draw.Draw(d.Render, region, image.NewUniform(c), region.Min, draw.Src)
+}
+
 // Clear writes a block of current background color in a rectangular shape,
 // specified in units of cells (rows and columns).
 // So (*Device).Clear(0,0, (*Device).cols, (*Device).rows) would
@@ -156,37 +176,23 @@ func (d *Device) Image() image.Image {
 func (d *Device) Clear(x1, y1, x2, y2 int) {
 	rect := image.Rect(
 		x1*d.Render.cell.Dx(), y1*d.Render.cell.Dy(),
-		x2*d.Render.cell.Dx(), y2*d.Render.cell.Dy()).
-		Add(d.Render.Bounds().Min)
+		x2*d.Render.cell.Dx(), y2*d.Render.cell.Dy())
 
-	// if underlying Image supports Fill(), use that instead
-	if fillable, ok := d.Render.Image.(gfx.Filler); ok {
-		fillable.Fill(rect, d.attr.Bg)
-		return
-	}
-
-	draw.Draw(d.Render,
-		rect,
-		d.attr.Bg,
-		image.Point{},
-		draw.Src)
+	d.Fill(rect, d.attr.Bg)
 }
 
 func (d *Device) clearAll() {
-	// if underlying Image supports Fill(), use that instead
-	if fillable, ok := d.Render.Image.(gfx.Filler); ok {
-		fillable.Fill(d.Render.Bounds(), d.attr.Bg)
-		return
-	}
-
-	draw.Draw(d.Render,
-		d.Render.Bounds(),
-		d.attr.Bg,
-		image.Point{},
-		draw.Src)
+	d.Fill(d.Render.bounds, d.attr.Bg)
 }
 
 // Bounds returns the image.Rectangle that aligns with terminal cell boundaries
 func (r Render) Bounds() image.Rectangle {
 	return r.bounds
+}
+
+func (r Render) Set(x, y int, c color.Color) {
+	if !image.Pt(x, y).In(r.bounds) {
+		return
+	}
+	r.Image.Set(x, y, c)
 }
