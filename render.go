@@ -34,7 +34,8 @@ func (d *Device) updateAttr() {
 		d.Render.active.fg, d.Render.active.bg = d.attr.Bg, d.attr.Fg
 	}
 
-	if d.Render.active.g[d.Render.active.shift] == &d.Render.CharSet {
+	switch d.Render.active.g[d.Render.active.shift] {
+	case &d.Render.CharSet:
 		switch {
 		case d.attr.Bold:
 			d.Render.active.tileSet = &d.Render.BoldCharSet
@@ -43,7 +44,7 @@ func (d *Device) updateAttr() {
 		default:
 			d.Render.active.tileSet = d.Render.active.g[d.Render.active.shift]
 		}
-	} else {
+	case &d.Render.AltCharSet:
 		// altCharSet in use
 		var ts tiles.Tiler
 		switch {
@@ -55,6 +56,7 @@ func (d *Device) updateAttr() {
 			ts = d.Render.AltCharSet
 		}
 		d.Render.active.tileSet = &ts
+	default:
 	}
 
 	return

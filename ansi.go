@@ -3,12 +3,11 @@ package fansiterm
 // ansi.go is largely just an implementation of https://en.wikipedia.org/wiki/ANSI_escape_code
 
 import (
+	"bytes"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"image"
-	"image/color"
-	"image/draw"
 	"strconv"
 	"strings"
 
@@ -68,7 +67,7 @@ func consumeEscSequence(data []rune) (n int, err error) {
 // getNumericArgs beaks apart seq at ';' characters and then tries to convert
 // each piece into an integer. If it fails to convert, def is used.
 func getNumericArgs(seq []rune, def int) (args []int) {
-	for _, arg := range strings.Split(string(seq), ";") {
+	for _, arg := range splitParams(seq) {
 		num, err := strconv.Atoi(string(arg))
 		if err != nil {
 			num = def
@@ -97,14 +96,7 @@ func (d *Device) HandleEscSequence(seq []rune) {
 		d.cursor.col = d.cursor.prevPos[0]
 		d.cursor.row = d.cursor.prevPos[1]
 	case 'c': // reset
-		d.attr = d.attrDefault
-		d.Render.active.g[0] = &d.Render.CharSet
-		d.Render.active.g[1] = &d.Render.AltCharSet
-		d.Render.active.tileSet = d.Render.active.g[0]
-		d.clearAll()
-		d.MoveCursorAbs(1, 1)
-		d.scrollArea = image.Rectangle{}
-		d.scrollRegion = [2]int{0, d.rows - 1}
+		d.Reset()
 	case '[':
 		d.HandleCSISequence(seq[2:])
 	case ']':
@@ -163,86 +155,29 @@ func trimST(seq []rune) []rune {
 	}
 }
 
-func (d *Device) HandleFansiSequence(seq []rune) {
-	seq = trimST(seq)
-	if len(seq) == 0 {
-		// Doing nothing seems safe...
-		return
+func DecodeImageData(data []rune) (image.Image, error) {
+	pixData, err := base64.StdEncoding.DecodeString(string(data))
+	if err != nil {
+		return nil, err
 	}
-	switch seq[0] {
-	case 'B': // B for Blit
-	case 'C': // C for Cell
-		// ESC/C<pixdata>ESC\
-		// ESC/C receives pixel data and puts it in the cursor's current position.
-		// The data is serialized binary pixel values, rgb, one byte per channel, base64 encoded.
-		seq = seq[1:]
-		pixData, err := base64.StdEncoding.DecodeString(string(seq))
-		if err != nil {
-			return
+
+	img, _, err := image.Decode(bytes.NewBuffer(pixData))
+
+	return img, err
+}
+
+func splitParams(data []rune) (split [][]rune) {
+	prev := 0
+	for i := range data {
+		if data[i] == ';' {
+			split = append(split, data[prev:i])
+			prev = i + 1
 		}
-
-		img := &RGBImage{
-			Pix:       pixData,
-			Rectangle: d.Render.cell,
-		}
-		draw.Draw(d.Render, d.Render.cell.Add(d.cursorPt()), img, image.Point{}, draw.Over)
-
-	case 'F': // F for Fill
-		var (
-			rect image.Rectangle
-			c    color.RGBA
-		)
-		c.A = 255
-
-		if strings.Contains(string(seq), "#") {
-			fmt.Sscanf(string(seq), "F%d,%d;%d,%d;#%2x%2x%2x", &rect.Min.X, &rect.Min.Y, &rect.Max.X, &rect.Max.Y, &c.R, &c.G, &c.B)
-		} else {
-			fmt.Sscanf(string(seq), "F%d,%d;%d,%d;%d,%d,%d", &rect.Min.X, &rect.Min.Y, &rect.Max.X, &rect.Max.Y, &c.R, &c.G, &c.B)
-		}
-
-		rect = rect.Canon()
-		d.Fill(rect, c)
-	case 'R': // R for radius (to make circles)
-		var (
-			x, y, r int
-			rect    image.Rectangle
-			c       color.RGBA
-		)
-		c.A = 255
-
-		if strings.Contains(string(seq), "#") {
-			fmt.Sscanf(string(seq), "R%d,%d,%d;#%2x%2x%2x", &x, &y, &r, &c.R, &c.G, &c.B)
-		} else {
-			fmt.Sscanf(string(seq), "R%d,%d,%d;%d,%d,%d", &x, &y, &r, &c.R, &c.G, &c.B)
-		}
-
-		rect.Min.X = x - r
-		rect.Max.X = x + r
-		rect.Min.Y = y - r
-		rect.Max.Y = y + r
-
-		rect = rect.Canon()
-		for yp := rect.Min.Y; yp <= rect.Max.Y; yp++ {
-			for xp := rect.Min.X; xp <= rect.Max.X; xp++ {
-				pt := image.Pt(xp, yp).Add(d.Render.bounds.Min)
-				if r*r >= (xp-x)*(xp-x)+(yp-y)*(yp-y) {
-					d.Render.Set(pt.X, pt.Y, c)
-				}
-			}
-		}
-	case 'S': // S for Set
-		var (
-			pt image.Point
-			c  color.RGBA
-		)
-		if strings.Contains(string(seq), "#") {
-			fmt.Sscanf(string(seq), "S%d,%d;#%2x%2x%2x", &pt.X, &pt.Y, &c.R, &c.G, &c.B)
-		} else {
-			fmt.Sscanf(string(seq), "S%d,%d;%d,%d,%d", &pt.X, &pt.Y, &c.R, &c.G, &c.B)
-		}
-		pt = pt.Add(d.Render.bounds.Min).Mod(d.Render.bounds)
-		d.Render.Set(pt.X, pt.Y, c)
 	}
+
+	split = append(split, data[prev:])
+
+	return
 }
 
 func (d *Device) HandleOSCSequence(seq []rune) {
@@ -263,424 +198,6 @@ func (d *Device) HandleOSCSequence(seq []rune) {
 			fmt.Println("Unhandled OSC:", seqString(seq))
 		}
 	}
-}
-
-func (d *Device) HandleCSISequence(seq []rune) {
-	if len(seq) == 0 {
-		return
-	}
-	args := getNumericArgs(seq[:len(seq)-1], 1)
-	// last byte of seq tells us what function we're doing
-	switch seq[len(seq)-1] {
-	case '@': // // Insert Characters. one option numerica arg, default 1
-		// TODO really shouldn't be using d.Render / d.Render.Image directly in here.
-		// Should have a scroll horizontal function or similar maybe a vectorScroll that works in cells
-		curs := d.cursorPt()
-		softVectorScroll(d.Render.Image,
-			image.Rectangle{Min: curs, Max: curs.Add(image.Pt(d.ColsRemaining()*d.Render.cell.Dx(), d.Render.cell.Dy()))},
-			image.Pt(-d.Render.cell.Dx()*args[0], 0))
-	case 'A': // Cursor Up, one optional numeric arg, default 1
-		if len(args) == 1 {
-			d.MoveCursorRel(0, -args[0])
-		}
-	case 'B': // Cursor Down, one optional numeric arg, default 1
-		if len(args) == 1 {
-			d.MoveCursorRel(0, args[0])
-		}
-	case 'C': // Cursor Right, one optional numeric arg, default 1
-		if len(args) == 1 {
-			d.MoveCursorRel(args[0], 0)
-		}
-	case 'D': // Cursor Left, one optional numeric arg, default 1
-		if len(args) == 1 {
-			d.MoveCursorRel(-args[0], 0)
-		}
-	case 'E': // Moves cursor to beginning of the line n (default 1) lines down.
-		if len(args) == 1 {
-			d.MoveCursorRel(-d.cols, args[0])
-		}
-	case 'F': // Moves cursor to beginning of the line n (default 1) lines up.
-		if len(args) == 1 {
-			d.MoveCursorRel(-d.cols, -args[0])
-		}
-	case 'G': // Moves the cursor to column n (default 1).
-		if len(args) == 1 {
-			d.MoveCursorAbs(args[0]-1, d.cursor.row)
-		}
-	case 'H': // Cursor position, Moves the cursor to row n, column m. The values are 1-based, and default to 1 (top left corner) if omitted. A sequence such as CSI ;5H is a synonym for CSI 1;5H as well as CSI 17;H is the same as CSI 17H and CSI 17;1H
-		var n, m int = 1, 1
-		switch len(args) {
-		case 2:
-			m = args[1]
-			fallthrough
-		case 1:
-			n = args[0]
-		}
-
-		d.MoveCursorAbs(m-1, n-1)
-	case 'J': // Clears part of the screen. If n is 0 (or missing), clear from cursor to end of screen. If n is 1, clear from cursor to beginning of the screen. If n is 2, clear entire screen (and moves cursor to upper left on DOS ANSI.SYS). If n is 3, clear entire screen and delete all lines saved in the scrollback buffer (this feature was added for xterm and is supported by other terminal applications).
-		args = getNumericArgs(seq[:len(seq)-1], 0)
-		switch args[0] {
-		case 0:
-			// clear from cursor to EOL
-			d.Clear(d.cursor.col, d.cursor.row, d.cols, d.cursor.row+1)
-			// clear area below cursor
-			d.Clear(0, d.cursor.row+1, d.cols, d.rows)
-		case 1:
-			// clear from cursor to beginning of line
-			d.Clear(0, d.cursor.row, d.cursor.col, d.cursor.row+1)
-			// clear area above cursor
-			d.Clear(0, 0, d.cols, d.cursor.row)
-		case 2:
-			// clear whole screen
-			d.Clear(0, 0, d.cols, d.rows)
-		}
-
-	case 'K': // Erases part of the line. If n is 0 (or missing), clear from cursor to the end of the line. If n is 1, clear from cursor to beginning of the line. If n is 2, clear entire line. Cursor position does not change.
-		args = getNumericArgs(seq[:len(seq)-1], 0)
-		switch args[0] {
-		case 0:
-			// clear from cursor to EOL
-			d.Clear(d.cursor.col, d.cursor.row, d.cols, d.cursor.row+1)
-		case 1:
-			// clear from cursor to beginning of line
-			d.Clear(0, d.cursor.row, d.cursor.col, d.cursor.row+1)
-		case 2:
-			// clear whole line
-			d.Clear(0, d.cursor.row, d.cols, d.cursor.row+1)
-		}
-	case 'L': // Insert Lines
-		// save scrollRegion, scrollArea
-		r, a := d.scrollRegion, d.scrollArea
-		// set scrollRegion to be between cursor and old region's bottom
-		d.setScrollRegion(d.cursor.row+1, d.scrollRegion[1]+1)
-		// shift down
-		d.Scroll(-args[0])
-		// clear new lines
-		// d.Clear(0, d.scrollRegion[0], d.cols, d.scrollRegion[1]-args[0])
-		// restore
-		d.scrollRegion, d.scrollArea = r, a
-	case 'M': // Delete Line
-		// save scrollRegion, scrollArea
-		r, a := d.scrollRegion, d.scrollArea
-		// set scrollRegion to be between cursor and old region's bottom
-		d.setScrollRegion(d.cursor.row+1, d.scrollRegion[1]+1)
-		d.Scroll(args[0])
-		// d.Clear(0, d.scrollRegion[1]-args[0], d.cols, d.scrollRegion[1])
-		// restore
-		d.scrollRegion, d.scrollArea = r, a
-	case 'P': // DCH Delete Character. Delete character(s) to the right of the cursor, shifting as needed
-		curs := d.cursorPt()
-		// TODO: use acceleration where possible
-		softVectorScroll(d.Render.Image,
-			image.Rectangle{Min: curs, Max: curs.Add(image.Pt(d.ColsRemaining()*d.Render.cell.Dx(), d.Render.cell.Dy()))},
-			image.Pt(d.Render.cell.Dx()*args[0], 0))
-		d.Clear(d.cols-args[0], d.cursor.row, d.cols, d.cursor.row+1)
-
-	case 'S': // Scroll whole page up by n (default 1) lines. New lines are added at the bottom.
-		if len(args) == 1 {
-			d.Scroll(args[0])
-		}
-	case 'T': // Scroll whole page down by n (default 1) lines. New lines are added at the top.
-		if len(args) == 1 {
-			d.Scroll(args[0])
-		}
-	case 'X': // Delete (clear) cells to the right of the cursor, on the same line
-		d.Clear(d.cursor.col, d.cursor.row, bound(args[0]+d.cursor.col, d.cursor.col+1, d.cols), d.cursor.row+1)
-	case 'c': // DA Device Attributes
-		// Lie and say we're a vt100
-		fmt.Fprintf(d.Output, "\x1b[?1;2c")
-	case 'd': // CSI n d: Mover cursor to line n
-		args = getNumericArgs(seq[:len(seq)-1], 1)
-		d.cursor.row = bound(args[0]-1, 0, d.rows)
-	case 'm': // CoLoRs!1!! AKA SGR (Select Graphic Rendition)
-		args := getNumericArgs(seq[:len(seq)-1], 0)
-		for i := 0; i < len(args); i++ {
-			switch args[i] {
-			case 0:
-				d.attr = d.attrDefault
-			case 1:
-				d.attr.Bold = true
-				if d.Config.BoldColors {
-					// if BoldColors is enabled, setting bold bumps
-					// the fg color
-					switch d.attr.Fg {
-					case ColorBlack:
-						d.attr.Fg = ColorBrightBlack
-					case ColorRed:
-						d.attr.Fg = ColorBrightRed
-					case ColorGreen:
-						d.attr.Fg = ColorBrightGreen
-					case ColorYellow:
-						d.attr.Fg = ColorBrightYellow
-					case ColorBlue:
-						d.attr.Fg = ColorBrightBlue
-					case ColorMagenta:
-						d.attr.Fg = ColorBrightMagenta
-					case ColorCyan:
-						d.attr.Fg = ColorBrightCyan
-					case ColorWhite:
-						d.attr.Fg = ColorBrightWhite
-					}
-					// don't modify color if we're not using one of the
-					// vga colors. There is a corner case of someone using
-					// a 24-bit or 256-color color, fixible by using a flag
-					// indicating if we've set a ANSI color or not, but...
-					// meh.
-				}
-			case 22:
-				d.attr.Bold = false
-				if d.Config.BoldColors {
-					// if BoldColors is enabled, unsetting bold drops
-					// the fg color
-					switch d.attr.Fg {
-					case ColorBrightBlack:
-						d.attr.Fg = ColorBlack
-					case ColorBrightRed:
-						d.attr.Fg = ColorRed
-					case ColorBrightGreen:
-						d.attr.Fg = ColorGreen
-					case ColorBrightYellow:
-						d.attr.Fg = ColorYellow
-					case ColorBrightBlue:
-						d.attr.Fg = ColorBlue
-					case ColorBrightMagenta:
-						d.attr.Fg = ColorMagenta
-					case ColorBrightCyan:
-						d.attr.Fg = ColorCyan
-					case ColorBrightWhite:
-						d.attr.Fg = ColorWhite
-					}
-					// don't modify color if we're not using one of the
-					// vga colors. There is a corner case of someone using
-					// a 24-bit or 256-color color, fixible by using a flag
-					// indicating if we've set a ANSI color or not, but...
-					// meh.
-				}
-			case 3:
-				d.attr.Italic = true
-			case 23:
-				d.attr.Italic = false
-			case 4:
-				d.attr.Underline = true
-			case 21:
-				d.attr.Underline = true
-				d.attr.DoubleUnderline = true
-			case 24:
-				d.attr.Underline = false
-				d.attr.DoubleUnderline = false
-			case 5:
-				d.attr.Blink = true
-			case 25:
-				d.attr.Blink = false
-			case 7:
-				d.attr.Reversed = true
-			case 27:
-				d.attr.Reversed = false
-			case 8:
-				d.attr.Conceal = true
-			case 28:
-				d.attr.Conceal = false
-			case 9:
-				d.attr.Strike = true
-			// case 10:
-			// 	d.Render.active.tileSet = d.Render.G0
-			// case 11:
-			// 	d.Render.active.tileSet = d.Render.G1
-			case 29:
-				d.attr.Strike = false
-			case 30:
-				if d.Config.BoldColors && d.attr.Bold {
-					d.attr.Fg = ColorBrightBlack
-				} else {
-					d.attr.Fg = ColorBlack
-				}
-			case 31:
-				if d.Config.BoldColors && d.attr.Bold {
-					d.attr.Fg = ColorBrightRed
-				} else {
-					d.attr.Fg = ColorRed
-				}
-			case 32:
-				if d.Config.BoldColors && d.attr.Bold {
-					d.attr.Fg = ColorBrightGreen
-				} else {
-					d.attr.Fg = ColorGreen
-				}
-			case 33:
-				if d.Config.BoldColors && d.attr.Bold {
-					d.attr.Fg = ColorBrightYellow
-				} else {
-					d.attr.Fg = ColorYellow
-				}
-			case 34:
-				if d.Config.BoldColors && d.attr.Bold {
-					d.attr.Fg = ColorBrightBlue
-				} else {
-					d.attr.Fg = ColorBlue
-				}
-			case 35:
-				if d.Config.BoldColors && d.attr.Bold {
-					d.attr.Fg = ColorBrightMagenta
-				} else {
-					d.attr.Fg = ColorMagenta
-				}
-			case 36:
-				if d.Config.BoldColors && d.attr.Bold {
-					d.attr.Fg = ColorBrightCyan
-				} else {
-					d.attr.Fg = ColorCyan
-				}
-			case 37:
-				if d.Config.BoldColors && d.attr.Bold {
-					d.attr.Fg = ColorBrightWhite
-				} else {
-					d.attr.Fg = ColorWhite
-				}
-			case 39:
-				d.attr.Fg = d.attrDefault.Fg
-			case 40:
-				d.attr.Bg = ColorBlack
-			case 41:
-				d.attr.Bg = ColorRed
-			case 42:
-				d.attr.Bg = ColorGreen
-			case 43:
-				d.attr.Bg = ColorYellow
-			case 44:
-				d.attr.Bg = ColorBlue
-			case 45:
-				d.attr.Bg = ColorMagenta
-			case 46:
-				d.attr.Bg = ColorCyan
-			case 47:
-				d.attr.Bg = ColorWhite
-			case 49:
-				d.attr.Bg = d.attrDefault.Bg
-			case 90:
-				d.attr.Fg = ColorBrightBlack
-			case 91:
-				d.attr.Fg = ColorBrightRed
-			case 92:
-				d.attr.Fg = ColorBrightGreen
-			case 93:
-				d.attr.Fg = ColorBrightYellow
-			case 94:
-				d.attr.Fg = ColorBrightBlue
-			case 95:
-				d.attr.Fg = ColorBrightMagenta
-			case 96:
-				d.attr.Fg = ColorBrightCyan
-			case 97:
-				d.attr.Fg = ColorBrightWhite
-			case 100:
-				d.attr.Bg = ColorBrightBlack
-			case 101:
-				d.attr.Bg = ColorBrightRed
-			case 102:
-				d.attr.Bg = ColorBrightGreen
-			case 103:
-				d.attr.Bg = ColorBrightYellow
-			case 104:
-				d.attr.Bg = ColorBrightBlue
-			case 105:
-				d.attr.Bg = ColorBrightMagenta
-			case 106:
-				d.attr.Bg = ColorBrightCyan
-			case 107:
-				d.attr.Bg = ColorBrightWhite
-
-			// 24bit True Color and 256-Color support support
-			case 38, 48:
-				if i+1 >= len(args) {
-					continue
-				}
-				if args[i+1] == 5 {
-					// prevent going out of range
-					args[i] = args[i] % 256
-					if args[i] == 38 {
-						d.attr.Fg = Colors256[args[i+2]]
-					} else {
-						d.attr.Bg = Colors256[args[i+2]]
-					}
-					i += 2
-					continue
-				}
-				if args[i+1] != 2 {
-					continue
-				}
-				i += 2
-				// can proceed
-				var r, g, b uint8
-				r, g, b = getRGB(args[i:])
-				i += 2
-				if args[i-4] == 38 {
-					d.attr.Fg = NewOpaqueColor(r, g, b)
-				} else {
-					d.attr.Bg = NewOpaqueColor(r, g, b)
-				}
-
-			default:
-				if ShowUnhandled {
-					fmt.Println("Unhandled SGR:", args[i], "(part of", seqString(seq), ")")
-				}
-
-			} // switch for SGR
-
-		}
-	case 'n': // DSR - Device Status Report
-		// args -
-		// '5' just returns CSI 0 n
-		// '6' return cursor location
-		switch args[0] {
-		case 5:
-			d.Output.Write([]byte{0x1b, '[', '0', 'n'})
-		case 6:
-			fmt.Fprintf(d.Output, "\x1b[%d;%dR", bound(d.cursor.row+1, 1, d.rows), bound(d.cursor.col+1, 1, d.cols))
-		}
-	case 'l', 'h': // private on/off extensions
-		if seq[0] != '?' || len(seq) < 2 {
-			return
-		}
-		args := getNumericArgs(seq[1:len(seq)-1], 0)
-		switch args[0] {
-		case 25: // show/hide cursor
-			if seq[len(seq)-1] == 'l' {
-				d.cursor.show = false
-				if d.cursor.visible {
-					d.toggleCursor()
-				}
-			} else {
-				d.cursor.show = true
-			}
-		default:
-			if ShowUnhandled {
-				fmt.Println("Unhandled Private Sequence", seqString(seq))
-			}
-		}
-	case 'r': // set scroll region
-		if len(args) != 2 {
-			return
-		}
-		d.setScrollRegion(args[0], args[1])
-	case 's': // save cursor position
-		d.cursor.prevPos[0] = d.cursor.col
-		d.cursor.prevPos[1] = d.cursor.row
-	case 't':
-		switch args[0] {
-		case 18: // report terminal size in cells
-			fmt.Fprintf(d.Output, "\x1b[8;%d:%dt", d.rows, d.cols)
-		case 19: // report terminal size in pixels
-			fmt.Fprintf(d.Output, "\x1b[9;%d;%dt", d.Render.Bounds().Dy(), d.Render.Bounds().Dx())
-		}
-	case 'u': // restore cursor position
-		d.cursor.col = d.cursor.prevPos[0]
-		d.cursor.row = d.cursor.prevPos[1]
-	default:
-		if ShowUnhandled {
-			fmt.Println("Unhandled CSI:", seqString(seq))
-		}
-	} // switch seq[len(seq)-1]
 }
 
 func getRGB(args []int) (r, g, b uint8) {

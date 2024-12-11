@@ -87,8 +87,9 @@ type Cursor struct {
 
 type Render struct {
 	draw.Image
-	bounds image.Rectangle
-	active struct {
+	colorSystem *colorSystem
+	bounds      image.Rectangle
+	active      struct {
 		tileSet *tiles.Tiler
 		fg      Color
 		bg      Color
@@ -125,11 +126,6 @@ type Attr struct {
 	Conceal         bool
 	Fg              Color
 	Bg              Color
-}
-
-var AttrDefault = Attr{
-	Fg: ColorWhite,
-	Bg: ColorBlack,
 }
 
 var ConfigDefault = Config{
@@ -174,6 +170,9 @@ func New(cols, rows int, buf draw.Image) *Device {
 		buf = image.NewRGBA(image.Rect(0, 0, cols*cell.Max.X, rows*cell.Max.Y))
 	}
 
+	// yoink the color model to init our colorSystem
+	colorSystem := NewColorSystem(buf.ColorModel())
+
 	// figure out our actual terminal bounds.
 	bounds := image.Rect(0, 0, cell.Dx()*cols, cell.Dy()*rows).Add(buf.Bounds().Min)
 
@@ -186,10 +185,6 @@ func New(cols, rows int, buf draw.Image) *Device {
 	// shift around
 	bounds = bounds.Add(offset)
 
-	// only pre-fill our area. If user wants the rest of the buffer colored in, that's
-	// on them.
-	draw.Draw(buf, bounds, AttrDefault.Bg, image.Point{}, draw.Src)
-
 	charSet := tiles.NewMultiTileSet(sweet16.Regular8x16, drawing.TileSet)
 	altCharSet := tiles.NewRemap(charSet)
 	altCharSet.Map = altToUnicode
@@ -197,9 +192,9 @@ func New(cols, rows int, buf draw.Image) *Device {
 	d := &Device{
 		cols: cols,
 		rows: rows,
-		attr: AttrDefault,
 		Render: Render{
 			Image:         buf,
+			colorSystem:   colorSystem,
 			bounds:        bounds,
 			AltCharSet:    altCharSet,
 			CharSet:       charSet,
@@ -211,17 +206,22 @@ func New(cols, rows int, buf draw.Image) *Device {
 		cursor: Cursor{
 			show: true,
 		},
-		attrDefault:  AttrDefault,
 		Config:       ConfigDefault,
 		Output:       io.Discard,
 		Properties:   make(map[Property]string),
 		scrollRegion: [2]int{0, rows - 1},
 	}
 
+	// Establish defaults
+	d.attrDefault.Fg = colorSystem.PaletteANSI[7]
+	d.attrDefault.Bg = colorSystem.PaletteANSI[0]
+
+	// only pre-fill our area. If user wants the rest of the buffer colored in, that's
+	// on them.
+	d.Fill(bounds, d.attrDefault.Bg)
+
 	d.Render.active.g = make([]*tiles.Tiler, 2)
-	d.Render.active.g[0] = &d.Render.CharSet
-	d.Render.active.g[1] = &d.Render.AltCharSet
-	d.Render.active.tileSet = d.Render.active.g[0]
+	d.Reset()
 	d.updateAttr()
 
 	return d
@@ -300,6 +300,17 @@ func (d *Device) HandleResize() {
 		// write copy to offset-image
 		draw.Draw(d.Render, d.Render.Bounds(), orig, orig.Bounds().Min, draw.Src)
 	}
+}
+
+func (d *Device) Reset() {
+	d.attr = d.attrDefault
+	d.Render.active.g[0] = &d.Render.CharSet
+	d.Render.active.g[1] = &d.Render.AltCharSet
+	d.Render.active.tileSet = d.Render.active.g[0]
+	d.clearAll()
+	d.MoveCursorAbs(1, 1)
+	d.scrollArea = image.Rectangle{}
+	d.scrollRegion = [2]int{0, d.rows - 1}
 }
 
 // SetCursorStyle changes the shape of the cursor. Valid options are CursorBlock,
