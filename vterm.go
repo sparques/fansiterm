@@ -109,10 +109,11 @@ type Render struct {
 }
 
 type Config struct {
-	TabSize     int
-	CursorStyle int
-	CursorBlink bool
-	BoldColors  bool
+	TabSize             int
+	StrikethroughHeight int
+	CursorStyle         int
+	CursorBlink         bool
+	BoldColors          bool
 }
 
 type Attr struct {
@@ -129,8 +130,9 @@ type Attr struct {
 }
 
 var ConfigDefault = Config{
-	TabSize:    8,
-	BoldColors: true,
+	TabSize:             8,
+	StrikethroughHeight: 7,
+	BoldColors:          true,
 }
 
 var altToUnicode = map[rune]rune{
@@ -445,10 +447,11 @@ func (d *Device) Write(data []byte) (n int, err error) {
 					d.cursor.row++
 				}
 			}
-			// render our single rune
-			d.RenderRune(runes[i])
-			// if we drew something the screen, we increment the column.
-			d.cursor.col++
+			// Render rune and then
+			// increment cursor by width of rune
+			// TODO: fix corner case where a >1 width rune happens
+			// at the last column
+			d.cursor.col += d.RenderRune(runes[i])
 		}
 	}
 
@@ -504,13 +507,16 @@ func softVectorScroll(img draw.Image, region image.Rectangle, vector image.Point
 	region = img.Bounds().Intersect(region)
 	var dst, src image.Point
 	for y := range region.Dy() {
+		if vector.Y >= 0 {
+			dst.Y = region.Min.Y + y
+		} else {
+			dst.Y = region.Max.Y - (y + 1)
+		}
 		for x := range region.Dx() {
-			dst.X, dst.Y = region.Min.X+x, region.Min.Y+y
-			if vector.Y < 0 {
-				dst.Y = region.Min.Y + region.Dy() - (y + 1)
-			}
-			if vector.X < 0 {
-				dst.X = region.Min.X + region.Dx() - (x + 1)
+			if vector.X >= 0 {
+				dst.X = region.Min.X + x
+			} else {
+				dst.X = region.Max.X - (x + 1)
 			}
 			src = dst.Add(vector).Mod(region)
 			img.Set(dst.X, dst.Y, img.At(src.X, src.Y))
@@ -518,6 +524,17 @@ func softVectorScroll(img draw.Image, region image.Rectangle, vector image.Point
 	}
 
 	return
+}
+
+func (d *Device) VectorScroll(region image.Rectangle, vector image.Point) {
+	if scrollable, ok := d.Render.Image.(gfx.VectorScroller); ok {
+		scrollable.VectorScroll(region, vector)
+	} else {
+		softVectorScroll(d.Render.Image, region, vector)
+	}
+}
+
+func (d *Device) VectorScrollCells(c1, r1, c2, r2, cn, rn int) {
 }
 
 // ColsRemaining returns how many columns are remaining until EOL

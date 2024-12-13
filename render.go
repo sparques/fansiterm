@@ -6,6 +6,7 @@ import (
 	"image/draw"
 	_ "image/png"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/sparques/fansiterm/tiles"
 	"github.com/sparques/fansiterm/xform"
 	"github.com/sparques/gfx"
@@ -21,6 +22,8 @@ var (
 	CursorBeam       = beamRect
 	CursorUnderscore = underscoreRect
 )
+
+var unicode = runewidth.NewCondition()
 
 func (d *Device) UpdateAttr() {
 	d.updateAttr()
@@ -71,17 +74,28 @@ func (d *Device) cursorPt() image.Point {
 // RenderRune does not do *any* interpretation of escape codes or control characters like \r or \n.
 // It simply renders a single rune at the cursor position. It is up to the caller
 // of RenderRune to process any control sequences / handle non-printing characters.
-func (d *Device) RenderRune(sym rune) {
-	(*d.Render.active.tileSet).DrawTile(sym, d.Render.Image, d.cursorPt(), d.Render.active.fg, d.Render.active.bg)
+func (d *Device) RenderRune(sym rune) (width int) {
+	width = 1
+	if sym > 255 {
+		// do runewidth check and adjusted width as necessary
+		width = unicode.RuneWidth(sym)
+	}
+	// TODO: support combining characters (basically, if rune is zero-width, draw it with transparency rather than bg color)
+	if width == 0 {
+		(*d.Render.active.tileSet).DrawTile(sym, d.Render.Image, d.cursorPt().Add(image.Pt(-d.Render.cell.Dx(), 0)), d.Render.active.fg, color.Alpha{0})
+	} else {
+		(*d.Render.active.tileSet).DrawTile(sym, d.Render.Image, d.cursorPt(), d.Render.active.fg, d.Render.active.bg)
+	}
 
 	if d.attr.Strike {
 		// draw a single pixel high line through the center of the whole cell
 		draw.Draw(d.Render,
 			image.Rect(
 				0,
-				d.Render.cell.Dy()/2+1,
-				d.Render.cell.Dx(),
-				d.Render.cell.Dy()/2+2).Add(d.cursorPt()),
+				d.Config.StrikethroughHeight,
+				d.Render.cell.Dx()*width,
+				d.Config.StrikethroughHeight+1,
+			).Add(d.cursorPt()),
 			d.Render.active.fg,
 			image.Point{},
 			draw.Src)
@@ -93,7 +107,7 @@ func (d *Device) RenderRune(sym rune) {
 			image.Rect(
 				0,
 				d.Render.cell.Dy()-1,
-				d.Render.cell.Dx(),
+				d.Render.cell.Dx()*width,
 				d.Render.cell.Dy()).Add(d.cursorPt()),
 			d.Render.active.fg,
 			image.Point{},
@@ -104,7 +118,7 @@ func (d *Device) RenderRune(sym rune) {
 				image.Rect(
 					0,
 					d.Render.cell.Dy()-3,
-					d.Render.cell.Dx(),
+					d.Render.cell.Dx()*width,
 					d.Render.cell.Dy()-2).Add(d.cursorPt()),
 				d.Render.active.fg,
 				image.Point{},
@@ -120,6 +134,8 @@ func (d *Device) RenderRune(sym rune) {
 			d.cursorPt(),
 			draw.Src)
 	}
+
+	return
 }
 
 func blockRect(cell image.Rectangle, pt image.Point) image.Rectangle {

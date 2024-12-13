@@ -66,11 +66,6 @@ func (d *Device) HandleFansiSequence(seq []rune) {
 		if targetRect.Dx()%d.Render.cell.Dx() != 0 {
 			x++
 		}
-		/*
-			y := (targetRect.Dy() / d.Render.cell.Dy()) - 1
-			if targetRect.Dy()%d.Render.cell.Dy() != 0 {
-				y++
-			}*/
 		d.MoveCursorRel(x, 0)
 
 	case 'C': // C for Cell
@@ -160,12 +155,12 @@ func (d *Device) HandleFansiSequence(seq []rune) {
 			swap = true
 		}
 
-		if pt1.X > pt2.X {
+		if pt1.X < pt2.X {
 			x_step = 1
 		} else {
 			x_step = -1
 		}
-		if pt1.Y > pt2.Y {
+		if pt1.Y < pt2.Y {
 			y_step = 1
 		} else {
 			y_step = -1
@@ -228,6 +223,7 @@ func (d *Device) HandleFansiSequence(seq []rune) {
 		var (
 			rect image.Rectangle
 			c    color.RGBA
+			nc   color.Color
 		)
 		c.A = 255
 
@@ -235,26 +231,31 @@ func (d *Device) HandleFansiSequence(seq []rune) {
 		if n != 7 {
 			n, _ = fmt.Sscanf(string(seq), "b%d,%d;%d,%d;%d,%d,%d", &rect.Min.X, &rect.Min.Y, &rect.Max.X, &rect.Max.Y, &c.R, &c.G, &c.B)
 		}
-		if n == 4 {
-			c = color.RGBAModel.Convert(d.Render.active.fg).(color.RGBA)
-		} else if n != 7 {
+
+		switch n {
+		case 4:
+			nc = d.Render.active.fg
+		case 7:
+			nc = d.Render.colorSystem.Convert(c)
+		default:
 			return
 		}
 
 		rect = rect.Canon().Add(d.Render.bounds.Min)
 
 		for x := rect.Min.X; x <= rect.Max.X; x++ {
-			d.Render.Set(x, rect.Min.Y, c)
-			d.Render.Set(x, rect.Max.Y, c)
+			d.Render.Set(x, rect.Min.Y, nc)
+			d.Render.Set(x, rect.Max.Y, nc)
 		}
 		for y := rect.Min.Y; y <= rect.Max.Y; y++ {
-			d.Render.Set(rect.Min.X, y, c)
-			d.Render.Set(rect.Max.X, y, c)
+			d.Render.Set(rect.Min.X, y, nc)
+			d.Render.Set(rect.Max.X, y, nc)
 		}
 	case 'r': // r for radius to make non-filled circles
 		var (
 			x, y, r int
 			c       color.RGBA
+			nc      color.Color
 			n       int
 		)
 		c.A = 255
@@ -266,9 +267,9 @@ func (d *Device) HandleFansiSequence(seq []rune) {
 		}
 		switch n {
 		case 3:
-			c = color.RGBAModel.Convert(d.Render.active.fg).(color.RGBA)
+			nc = d.Render.active.fg
 		case 6:
-			// all good
+			nc = d.Render.colorSystem.Convert(c)
 		default:
 			return
 		}
@@ -280,14 +281,14 @@ func (d *Device) HandleFansiSequence(seq []rune) {
 		yp := r
 		de := 3 - 2*r
 		for xp <= yp {
-			d.Render.Set(xp+x, yp+y, c)
-			d.Render.Set(xp+x, -yp+y, c)
-			d.Render.Set(-xp+x, yp+y, c)
-			d.Render.Set(-xp+x, -yp+y, c)
-			d.Render.Set(yp+x, xp+y, c)
-			d.Render.Set(yp+x, -xp+y, c)
-			d.Render.Set(-yp+x, xp+y, c)
-			d.Render.Set(-yp+x, -xp+y, c)
+			d.Render.Set(xp+x, yp+y, nc)
+			d.Render.Set(xp+x, -yp+y, nc)
+			d.Render.Set(-xp+x, yp+y, nc)
+			d.Render.Set(-xp+x, -yp+y, nc)
+			d.Render.Set(yp+x, xp+y, nc)
+			d.Render.Set(yp+x, -xp+y, nc)
+			d.Render.Set(-yp+x, xp+y, nc)
+			d.Render.Set(-yp+x, -xp+y, nc)
 			if de < 0 {
 				de = de + 4*xp + 6
 			} else {
@@ -322,13 +323,32 @@ func (d *Device) HandleFansiSequence(seq []rune) {
 		var (
 			pt image.Point
 			c  color.RGBA
+			n  int
 		)
 		if strings.Contains(string(seq), "#") {
-			fmt.Sscanf(string(seq), "S%d,%d;#%2x%2x%2x", &pt.X, &pt.Y, &c.R, &c.G, &c.B)
+			n, _ = fmt.Sscanf(string(seq), "S%d,%d;#%2x%2x%2x", &pt.X, &pt.Y, &c.R, &c.G, &c.B)
 		} else {
-			fmt.Sscanf(string(seq), "S%d,%d;%d,%d,%d", &pt.X, &pt.Y, &c.R, &c.G, &c.B)
+			n, _ = fmt.Sscanf(string(seq), "S%d,%d;%d,%d,%d", &pt.X, &pt.Y, &c.R, &c.G, &c.B)
 		}
 		pt = pt.Add(d.Render.bounds.Min).Mod(d.Render.bounds)
-		d.Render.Set(pt.X, pt.Y, c)
+		switch n {
+		case 2:
+			d.Render.Set(pt.X, pt.Y, d.Render.active.fg)
+		case 5:
+			d.Render.Set(pt.X, pt.Y, c)
+		default:
+		}
+	case 'V': // V for vectorScroll
+		var (
+			region image.Rectangle
+			vector image.Point
+		)
+		n, _ := fmt.Sscanf(string(seq), "V%d,%d;%d,%d;%d,%d", &region.Min.X, &region.Min.Y, &region.Max.X, &region.Max.Y, &vector.X, &vector.Y)
+		if n != 6 {
+			return
+		}
+		region = region.Add(d.Render.bounds.Min)
+		d.VectorScroll(region, vector)
 	}
+
 }

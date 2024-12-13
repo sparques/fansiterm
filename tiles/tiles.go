@@ -155,6 +155,20 @@ func bitColorModel(c color.Color) color.Color {
 	return BitColor(false)
 }
 
+func bitColorModel2(c color.Color) color.Color {
+	if b, ok := c.(BitColor); ok {
+		return b
+	}
+
+	r, g, b, _ := c.RGBA()
+	m := max(r, g, b)
+	if m > 255*0x101/2 {
+		return BitColor(true)
+	} else {
+		return BitColor(false)
+	}
+}
+
 // AlphaCell is a 1-bit-depth image.Image that is always 8x16
 type AlphaCell struct {
 	Pix [16]uint8
@@ -250,12 +264,27 @@ func (ats *AlphaCellTileSet) DrawTile(r rune, dst draw.Image, pt image.Point, fg
 		pix = [16]uint8{}
 
 	}
-	for y := range len(pix) {
-		for x := 0; x < 8; x++ {
-			if (pix[y]>>(7-x))&1 == 1 {
-				dst.Set(pt.X+x, pt.Y+y, fg)
-			} else {
-				dst.Set(pt.X+x, pt.Y+y, bg)
+
+	_, _, _, a := bg.RGBA()
+
+	if a < 127 {
+		// bg is transparent (transparent enough), so do not draw it
+		for y := range len(pix) {
+			for x := 0; x < 8; x++ {
+				if (pix[y]>>(7-x))&1 == 1 {
+					dst.Set(pt.X+x, pt.Y+y, fg)
+				}
+			}
+		}
+	} else {
+		// draw both fg and bg
+		for y := range len(pix) {
+			for x := 0; x < 8; x++ {
+				if (pix[y]>>(7-x))&1 == 1 {
+					dst.Set(pt.X+x, pt.Y+y, fg)
+				} else {
+					dst.Set(pt.X+x, pt.Y+y, bg)
+				}
 			}
 		}
 	}
@@ -395,7 +424,8 @@ func (i Italics) DrawTile(r rune, dst draw.Image, pt image.Point, fg color.Color
 
 func (i Italics) GetTile(r rune) (image.Image, bool) {
 	g, ok := i.FontTileSet.GetTile(r)
-	return rotateImage(g, -10), ok
+	// return rotateImage(g, -10), ok
+	return italicize(g), ok
 }
 
 type Bold struct {
@@ -436,6 +466,23 @@ func drawTile(dst draw.Image, pt image.Point, src image.Image, fg color.Color, b
 type imageTransform struct {
 	image.Image
 	tx func(x, y int) (int, int)
+}
+
+func italicize(img image.Image) imageTransform {
+	return imageTransform{
+		Image: img,
+		tx: func(x, y int) (int, int) {
+			switch {
+			case y < 6:
+				return x - 1, y
+			case y < 10:
+				return x, y
+			default:
+				return x + 1, y
+			}
+			return x, y
+		},
+	}
 }
 
 func (it imageTransform) At(x, y int) color.Color {

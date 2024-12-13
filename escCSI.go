@@ -16,7 +16,8 @@ func (d *Device) HandleCSISequence(seq []rune) {
 		// TODO really shouldn't be using d.Render / d.Render.Image directly in here.
 		// Should have a scroll horizontal function or similar maybe a vectorScroll that works in cells
 		curs := d.cursorPt()
-		softVectorScroll(d.Render.Image,
+
+		d.VectorScroll(
 			image.Rectangle{Min: curs, Max: curs.Add(image.Pt(d.ColsRemaining()*d.Render.cell.Dx(), d.Render.cell.Dy()))},
 			image.Pt(-d.Render.cell.Dx()*args[0], 0))
 	case 'A': // Cursor Up, one optional numeric arg, default 1
@@ -112,14 +113,14 @@ func (d *Device) HandleCSISequence(seq []rune) {
 	case 'P': // DCH Delete Character. Delete character(s) to the right of the cursor, shifting as needed
 		curs := d.cursorPt()
 		// TODO: use acceleration where possible
-		softVectorScroll(d.Render.Image,
+		d.VectorScroll(
 			image.Rectangle{Min: curs, Max: curs.Add(image.Pt(d.ColsRemaining()*d.Render.cell.Dx(), d.Render.cell.Dy()))},
 			image.Pt(d.Render.cell.Dx()*args[0], 0))
 		d.Clear(d.cols-args[0], d.cursor.row, d.cols, d.cursor.row+1)
 
 	case 'S': // Scroll whole page up by n (default 1) lines. New lines are added at the bottom.
 		if len(args) == 1 {
-			d.Scroll(args[0])
+			d.Scroll(-args[0])
 		}
 	case 'T': // Scroll whole page down by n (default 1) lines. New lines are added at the top.
 		if len(args) == 1 {
@@ -246,12 +247,10 @@ func (d *Device) HandleCSISequence(seq []rune) {
 				r, g, b = getRGB(args[i:])
 				i += 2
 				if args[i-4] == 38 {
-
 					d.attr.Fg = d.Render.colorSystem.NewRGB(r, g, b)
 				} else {
 					d.attr.Bg = d.Render.colorSystem.NewRGB(r, g, b)
 				}
-
 			default:
 				if ShowUnhandled {
 					fmt.Println("Unhandled SGR:", args[i], "(part of", seqString(seq), ")")

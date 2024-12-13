@@ -60,15 +60,27 @@ func (c Colorizer) RGBA() (r, g, b, a uint32) {
 }
 
 type colorSystem struct {
-	model       color.Model
-	PaletteANSI [16]Color
-	Palette256  [256]Color
+	color.Model
+	PaletteANSI  [16]Color
+	Palette256   [256]Color
+	currentColor Color
 }
 
-// Use the color model from the backing image, regardles of where it
-// comes from (allocated here or provided)
+func (cs *colorSystem) Color(c color.Color) *colorSystem {
+	cs.currentColor = cs.Convert(c).(Color)
+	return cs
+}
+
+func (cs *colorSystem) RGBA() (r, g, b, a uint32) {
+	return cs.currentColor.RGBA()
+}
+
+// NewColorSystem instantiates and initializes a *colorSystem.
+// Fansiterm (*Device) uses colorSystem as its palette as well
+// as using it to ensure our working colors are already in
+// the native format for the backing buffer.
 func NewColorSystem(m color.Model) *colorSystem {
-	cs := &colorSystem{model: m}
+	cs := &colorSystem{Model: m}
 
 	// init PaletteANSI
 	cs.PaletteANSI = [16]Color{
@@ -352,5 +364,5 @@ func NewColorSystem(m color.Model) *colorSystem {
 }
 
 func (cs *colorSystem) NewRGB(r, g, b uint8) Color {
-	return Color{cs.model.Convert(color.RGBA{r, g, b, 255})}
+	return Color{cs.Convert(color.RGBA{r, g, b, 255})}
 }
