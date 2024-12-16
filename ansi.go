@@ -17,7 +17,9 @@ import (
 var errEscapeSequenceIncomplete = errors.New("escape sequence incomplete")
 
 var (
-	ShowEsc       bool
+	// ShowEsc if set to true (default false) prints to stdout escape sequences as received by fansiterm
+	ShowEsc bool
+	// ShowUnhandled if set to true (default false) prints to stdout escape sequencies that fansiterm does not actually handle.
 	ShowUnhandled bool
 )
 

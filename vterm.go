@@ -22,10 +22,6 @@ import (
 type Device struct {
 	// BellFunc is called if it is non-null and the terminal would
 	// display a bell character
-	// TODO: Implement affirmative beep (default) and negative acknowledge beep
-	// Negative acknowledge is produced when \a is sent while in SHIFT-OUT mode.
-	// Affirmative: C-G (quarter notes?)
-	// NAK: C♭ (whole note?)
 	BellFunc func()
 
 	// Config species the runtime configurable features of fansiterm.
@@ -129,6 +125,8 @@ type Attr struct {
 	Bg              Color
 }
 
+// ConfigDefault is used to initialize (*Device).Config. These are the config
+// values fansiterm uses when initializing a terminal.
 var ConfigDefault = Config{
 	TabSize:             8,
 	StrikethroughHeight: 7,

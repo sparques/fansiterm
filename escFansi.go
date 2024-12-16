@@ -42,14 +42,14 @@ func (d *Device) HandleFansiSequence(seq []rune) {
 				return
 			}
 			targetRect = img.Bounds().Add(d.cursorPt())
-		case 2:
+		case 2: // show at specific pixel offset
 			fmt.Sscanf(string(params[0]), "%d,%d;", &loc.X, &loc.Y)
 			img, err = DecodeImageData(params[1])
 			if err != nil {
 				return
 			}
 			targetRect = img.Bounds().Add(d.Render.bounds.Min).Add(loc)
-		case 3:
+		case 3: // show within a limited area
 			n, _ := fmt.Sscanf(string(seq[1:len(seq)-len(params[2])]), "%d,%d;%d,%d;", &targetRect.Min.X, &targetRect.Min.Y, &targetRect.Max.X, &targetRect.Max.Y)
 			if n != 4 {
 				return
@@ -131,7 +131,7 @@ func (d *Device) HandleFansiSequence(seq []rune) {
 		if n == 4 {
 			c = d.Render.active.fg
 		} else {
-			c = color.RGBA{uint8(r), uint8(g), uint8(b), 255}
+			c = d.Render.colorSystem.Convert(color.RGBA{uint8(r), uint8(g), uint8(b), 255})
 		}
 
 		pt1, pt2 = pt1.Add(d.Render.bounds.Min), pt2.Add(d.Render.bounds.Min)
@@ -181,12 +181,36 @@ func (d *Device) HandleFansiSequence(seq []rune) {
 			x += x_step
 			p += 2 * dy
 		}
-
+	case 'P': // P for Palette
+		var (
+			t  byte
+			id int
+			c  color.RGBA
+		)
+		n, _ := fmt.Sscanf(string(seq), "P%c%d;#%2x%2x%2x", &t, &id, &c.R, &c.G, &c.B)
+		if n != 5 {
+			n, _ = fmt.Sscanf(string(seq), "P%c%d;#%2x%2x%2x", &t, &id, &c.R, &c.G, &c.B)
+		}
+		if n != 5 {
+			return
+		}
+		switch t {
+		case 'a': // a for ANSI
+			if id < 0 || id > 15 {
+				return
+			}
+			d.Render.colorSystem.PaletteANSI[id] = d.Render.colorSystem.NewRGB(c.R, c.G, c.B)
+		case 'p': // p for 256-palette
+			d.Render.colorSystem.Palette256[id] = d.Render.colorSystem.NewRGB(c.R, c.G, c.B)
+		default:
+			return
+		}
 	case 'R': // R for radius (to make circles)
 		var (
 			x, y, r int
 			rect    image.Rectangle
 			c       color.RGBA
+			nc      color.Color
 			n       int
 		)
 		c.A = 255
@@ -198,9 +222,9 @@ func (d *Device) HandleFansiSequence(seq []rune) {
 		}
 		switch n {
 		case 3:
-			c = color.RGBAModel.Convert(d.Render.active.fg).(color.RGBA)
+			nc = d.Render.active.fg
 		case 6:
-			// all good
+			nc = d.Render.colorSystem.Convert(c)
 		default:
 			return
 		}
@@ -215,7 +239,7 @@ func (d *Device) HandleFansiSequence(seq []rune) {
 			for xp := rect.Min.X; xp <= rect.Max.X; xp++ {
 				pt := image.Pt(xp, yp).Add(d.Render.bounds.Min)
 				if r*r >= (xp-x)*(xp-x)+(yp-y)*(yp-y) {
-					d.Render.Set(pt.X, pt.Y, c)
+					d.Render.Set(pt.X, pt.Y, nc)
 				}
 			}
 		}
@@ -347,7 +371,7 @@ func (d *Device) HandleFansiSequence(seq []rune) {
 		if n != 6 {
 			return
 		}
-		region = region.Add(d.Render.bounds.Min)
+		region = region.Canon().Add(d.Render.bounds.Min).Intersect(d.Render.bounds)
 		d.VectorScroll(region, vector)
 	}
 
