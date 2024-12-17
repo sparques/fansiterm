@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-func (d *Device) HandleFansiSequence(seq []rune) {
+func (d *Device) handleFansiSequence(seq []rune) {
 	seq = trimST(seq)
 	if len(seq) <= 1 {
 		// Doing nothing seems safe...
@@ -116,7 +116,7 @@ func (d *Device) HandleFansiSequence(seq []rune) {
 		}
 
 		rect = rect.Canon()
-		d.Fill(rect, c)
+		d.Render.Fill(rect, c)
 	case 'L': // L for line
 		var (
 			pt1, pt2 image.Point
@@ -372,7 +372,7 @@ func (d *Device) HandleFansiSequence(seq []rune) {
 			return
 		}
 		region = region.Canon().Add(d.Render.bounds.Min).Intersect(d.Render.bounds)
-		d.VectorScroll(region, vector)
+		d.Render.VectorScroll(region, vector)
 	}
 
 }

@@ -1,6 +1,7 @@
 package fansiterm
 
 // ansi.go is largely just an implementation of https://en.wikipedia.org/wiki/ANSI_escape_code
+// TODO Actually Implement all of ANSI X3.64
 
 import (
 	"bytes"
@@ -22,6 +23,69 @@ var (
 	// ShowUnhandled if set to true (default false) prints to stdout escape sequencies that fansiterm does not actually handle.
 	ShowUnhandled bool
 )
+
+// HandleEscSequence handles escape sequences. This should be the whole complete
+// sequence. Bounds are not checked so an incomplete sequence will cause
+// a panic.
+func (d *Device) handleEscSequence(seq []rune) {
+	if ShowEsc {
+		fmt.Println(seqString(seq))
+	}
+	switch seq[1] {
+	case '7': // save cursor position
+		d.cursor.prevPos[0] = d.cursor.col
+		d.cursor.prevPos[1] = d.cursor.row
+	case '8': // restore cursor position
+		d.cursor.col = d.cursor.prevPos[0]
+		d.cursor.row = d.cursor.prevPos[1]
+	case 'c': // reset
+		d.Reset()
+	case '[':
+		d.handleCSISequence(seq[2:])
+	case ']':
+		d.handleOSCSequence(seq[2:])
+	case 'M': // Move cursor up; if at top of screen, scroll up one line
+		if d.cursor.row == 0 {
+			d.Scroll(-1)
+		} else {
+			d.cursor.row--
+		}
+	case '(': // set G0
+		switch seq[2] {
+		case '0':
+			// d.Render.G0 = d.Render.AltCharSet
+			d.Render.active.g[0] = &d.Render.AltCharSet
+		case 'B':
+			fallthrough
+		default:
+			// d.Render.G0 = d.Render.CharSet
+			d.Render.active.g[0] = &d.Render.CharSet
+		}
+	case ')': // set G1
+		// B for regular, 0 for line drawing
+		switch seq[2] {
+		case '0':
+			// d.Render.G1 = d.Render.AltCharSet
+			d.Render.active.g[1] = &d.Render.AltCharSet
+		case 'B':
+			fallthrough
+		default:
+			// d.Render.G1 = d.Render.CharSet
+			d.Render.active.g[1] = &d.Render.CharSet
+		}
+	case '/':
+		d.handleFansiSequence(seq[2:])
+	case '>': // auxilary keypad numeric mode
+		fallthrough
+	case '=': // auxilary keypad application mode
+		fallthrough
+	default:
+		if ShowUnhandled {
+			fmt.Println("Unhandled ESC:", seqString(seq))
+		}
+	}
+	d.updateAttr()
+}
 
 // consumeEscSequence figures out where the escape sequence in data ends.
 // It assumes data[0] == 0x1b.
@@ -83,69 +147,6 @@ func bound[N constraints.Integer](x, minimum, maximum N) N {
 	return min(max(x, minimum), maximum)
 }
 
-// HandleEscSequence handles escape sequences. This should be the whole complete
-// sequence. Bounds are not checked so an incomplete sequence will cause
-// a panic.
-func (d *Device) HandleEscSequence(seq []rune) {
-	if ShowEsc {
-		fmt.Println(seqString(seq))
-	}
-	switch seq[1] {
-	case '7': // save cursor position
-		d.cursor.prevPos[0] = d.cursor.col
-		d.cursor.prevPos[1] = d.cursor.row
-	case '8': // restore cursor position
-		d.cursor.col = d.cursor.prevPos[0]
-		d.cursor.row = d.cursor.prevPos[1]
-	case 'c': // reset
-		d.Reset()
-	case '[':
-		d.HandleCSISequence(seq[2:])
-	case ']':
-		d.HandleOSCSequence(seq[2:])
-	case 'M': // Move cursor up; if at top of screen, scroll up one line
-		if d.cursor.row == 0 {
-			d.Scroll(-1)
-		} else {
-			d.cursor.row--
-		}
-	case '(': // set G0
-		switch seq[2] {
-		case '0':
-			// d.Render.G0 = d.Render.AltCharSet
-			d.Render.active.g[0] = &d.Render.AltCharSet
-		case 'B':
-			fallthrough
-		default:
-			// d.Render.G0 = d.Render.CharSet
-			d.Render.active.g[0] = &d.Render.CharSet
-		}
-	case ')': // set G1
-		// B for regular, 0 for line drawing
-		switch seq[2] {
-		case '0':
-			// d.Render.G1 = d.Render.AltCharSet
-			d.Render.active.g[1] = &d.Render.AltCharSet
-		case 'B':
-			fallthrough
-		default:
-			// d.Render.G1 = d.Render.CharSet
-			d.Render.active.g[1] = &d.Render.CharSet
-		}
-	case '/':
-		d.HandleFansiSequence(seq[2:])
-	case '>': // auxilary keypad numeric mode
-		fallthrough
-	case '=': // auxilary keypad application mode
-		fallthrough
-	default:
-		if ShowUnhandled {
-			fmt.Println("Unhandled ESC:", seqString(seq))
-		}
-	}
-	d.updateAttr()
-}
-
 func trimST(seq []rune) []rune {
 	switch {
 	case seq[len(seq)-1] == '\a':
@@ -157,6 +158,8 @@ func trimST(seq []rune) []rune {
 	}
 }
 
+// DecodeImageData accepts base64 encoded data and attempts to
+// decode it as an image, returning the image.
 func DecodeImageData(data []rune) (image.Image, error) {
 	pixData, err := base64.StdEncoding.DecodeString(string(data))
 	if err != nil {
@@ -180,26 +183,6 @@ func splitParams(data []rune) (split [][]rune) {
 	split = append(split, data[prev:])
 
 	return
-}
-
-func (d *Device) HandleOSCSequence(seq []rune) {
-	seq = trimST(seq)
-	if len(seq) == 0 {
-		// what does an empty OSC sequence mean?
-		// Doing nothing seems safe...
-		return
-	}
-	args := getNumericArgs(seq, 0)
-	switch args[0] {
-	case 0:
-		// xterm set window title
-		d.Properties[PropertyWindowTitle] = string(seq[2:])
-
-	default:
-		if ShowUnhandled {
-			fmt.Println("Unhandled OSC:", seqString(seq))
-		}
-	}
 }
 
 func getRGB(args []int) (r, g, b uint8) {

@@ -3,6 +3,7 @@ package fansiterm
 import (
 	"bytes"
 	"image"
+	"image/color"
 	"image/draw"
 	"io"
 	"sync"
@@ -102,6 +103,10 @@ type Render struct {
 	cursorFunc    cursorRectFunc
 	// DisplayFunc is called after a write to the terminal. This is for some displays require a flush / blit / sync call.
 	DisplayFunc func()
+
+	scroll       func(int)
+	vectorScroll func(image.Rectangle, image.Point)
+	fill         func(image.Rectangle, color.Color)
 }
 
 type Config struct {
@@ -216,9 +221,32 @@ func New(cols, rows int, buf draw.Image) *Device {
 	d.attrDefault.Fg = colorSystem.PaletteANSI[7]
 	d.attrDefault.Bg = colorSystem.PaletteANSI[0]
 
+	// use hardware accelerated functions where possible
+	if scrollable, ok := d.Render.Image.(gfx.Scroller); ok {
+		d.Render.scroll = scrollable.Scroll
+	} else {
+		d.Render.scroll = func(pixAmt int) {
+			softVectorScroll(d.Render, d.Render.bounds, image.Pt(0, pixAmt))
+		}
+	}
+
+	if scrollable, ok := d.Render.Image.(gfx.VectorScroller); ok {
+		d.Render.vectorScroll = scrollable.VectorScroll
+	} else {
+		d.Render.vectorScroll = func(r image.Rectangle, v image.Point) { softVectorScroll(d.Render.Image, r, v) }
+	}
+
+	if fillable, ok := d.Render.Image.(gfx.Filler); ok {
+		d.Render.fill = fillable.Fill
+	} else {
+		d.Render.fill = func(r image.Rectangle, c color.Color) {
+			draw.Draw(d.Render, r, image.NewUniform(c), r.Min, draw.Src)
+		}
+	}
+
 	// only pre-fill our area. If user wants the rest of the buffer colored in, that's
 	// on them.
-	d.Fill(bounds, d.attrDefault.Bg)
+	d.Render.Fill(bounds, d.attrDefault.Bg)
 
 	d.Render.active.g = make([]*tiles.Tiler, 2)
 	d.Reset()
@@ -362,6 +390,16 @@ func isFinal(r rune) bool {
 	return r >= 0x40
 }
 
+// GetReader returns an io.Reader that fansiterm will use for output.
+// This uses an io.Pipe under the hood. Tthe write portion of the
+// pipe displaces (*Device).Output.
+// A new pipe is instantiated every time this is called and will
+// displace the old pipe.
+func (d *Device) GetReader() (rd io.Reader) {
+	rd, d.Output = io.Pipe()
+	return
+}
+
 // Write implements io.Write and is the main way to interract with a (*fansiterm).Device. This is
 // essentially writing to the "terminal."
 // Writes are more or less unbuffered with the exception of escape sequences. If a partial escape sequence
@@ -407,9 +445,11 @@ func (d *Device) Write(data []byte) (n int, err error) {
 		case '\r': // carriage return
 			d.cursor.col = 0
 		case '\n': // linefeed
+			d.cursor.col = 0
+			fallthrough
+		case '\v', '\f': // vertical tab and form feed (who uses either any more?!)
 			// if scroll region is not the whole screen, trying to do a new line past the end
 			// of the last row should be treated as a carriage return
-			d.cursor.col = 0
 			if d.cursor.row == d.scrollRegion[1] {
 				d.Scroll(1)
 				continue
@@ -431,7 +471,7 @@ func (d *Device) Write(data []byte) (n int, err error) {
 				i += len(runes[i:])
 				continue
 			}
-			d.HandleEscSequence(runes[i : i+n])
+			d.handleEscSequence(runes[i : i+n])
 			i += n - 1
 		default:
 			// if we're past the end of the screen (remember, d.cols=number of columns but cursor.col is 0 indexed)
@@ -459,76 +499,24 @@ func (d *Device) Write(data []byte) (n int, err error) {
 func (d *Device) Scroll(rowAmount int) {
 	// scrollArea Empty means scroll the whole screen--we can use more efficient algos for that
 	if d.scrollArea.Empty() {
-		// if the underlying image supports Scroll(), use that
-		// if scrollable, ok := d.Render.Image.(gfx.Scroller); ok {
-		// scrollable.Scroll(rowAmount * d.Render.cell.Dy())
-		if scrollable, ok := d.Render.Image.(gfx.RegionScroller); ok {
-			scrollable.RegionScroll(d.Render.Bounds(), rowAmount*d.Render.cell.Dy())
-		} else {
-			// use softscroll
-			// probably adding a bug here related to xform.Translate
-			softRegionScroll(d.Render.Image, d.Render.Bounds(), rowAmount*d.Render.cell.Dy())
-		}
-
+		d.Render.Scroll(rowAmount * d.Render.cell.Dy())
 		// fill in scrolls section with background
 		if rowAmount > 0 {
 			d.Clear(0, d.rows-rowAmount, d.cols, d.rows)
 		} else {
 			d.Clear(0, 0, d.cols, -rowAmount)
 		}
-
 		return
 	}
 
 	// scrollArea is set; must scroll a subsection
-	if scrollable, ok := d.Render.Image.(gfx.RegionScroller); ok {
-		scrollable.RegionScroll(d.scrollArea, rowAmount*d.Render.cell.Dy())
-	} else {
-		// underlaying image doesn't support gfx.RegionScroller; use softRegionScroll
-		softRegionScroll(d.Render.Image, d.scrollArea, rowAmount*d.Render.cell.Dy())
-	}
+	d.Render.VectorScroll(d.scrollArea, image.Pt(0, rowAmount*d.Render.cell.Dy()))
 
 	// fill in scrolls section with background
 	if rowAmount > 0 {
 		d.Clear(0, d.scrollRegion[1]-rowAmount+1, d.cols, d.scrollRegion[1]+1)
 	} else {
 		d.Clear(0, d.scrollRegion[0], d.cols, d.scrollRegion[0]-rowAmount)
-	}
-}
-
-// should probably move to gfx package
-func softRegionScroll(img draw.Image, region image.Rectangle, amount int) {
-	softVectorScroll(img, region, image.Pt(0, amount))
-}
-
-func softVectorScroll(img draw.Image, region image.Rectangle, vector image.Point) {
-	region = img.Bounds().Intersect(region)
-	var dst, src image.Point
-	for y := range region.Dy() {
-		if vector.Y >= 0 {
-			dst.Y = region.Min.Y + y
-		} else {
-			dst.Y = region.Max.Y - (y + 1)
-		}
-		for x := range region.Dx() {
-			if vector.X >= 0 {
-				dst.X = region.Min.X + x
-			} else {
-				dst.X = region.Max.X - (x + 1)
-			}
-			src = dst.Add(vector).Mod(region)
-			img.Set(dst.X, dst.Y, img.At(src.X, src.Y))
-		}
-	}
-
-	return
-}
-
-func (d *Device) VectorScroll(region image.Rectangle, vector image.Point) {
-	if scrollable, ok := d.Render.Image.(gfx.VectorScroller); ok {
-		scrollable.VectorScroll(region, vector)
-	} else {
-		softVectorScroll(d.Render.Image, region, vector)
 	}
 }
 

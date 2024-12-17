@@ -5,7 +5,7 @@ import (
 	"image"
 )
 
-func (d *Device) HandleCSISequence(seq []rune) {
+func (d *Device) handleCSISequence(seq []rune) {
 	if len(seq) == 0 {
 		return
 	}
@@ -17,37 +17,23 @@ func (d *Device) HandleCSISequence(seq []rune) {
 		// Should have a scroll horizontal function or similar maybe a vectorScroll that works in cells
 		curs := d.cursorPt()
 
-		d.VectorScroll(
+		d.Render.VectorScroll(
 			image.Rectangle{Min: curs, Max: curs.Add(image.Pt(d.ColsRemaining()*d.Render.cell.Dx(), d.Render.cell.Dy()))},
 			image.Pt(-d.Render.cell.Dx()*args[0], 0))
 	case 'A': // Cursor Up, one optional numeric arg, default 1
-		if len(args) == 1 {
-			d.MoveCursorRel(0, -args[0])
-		}
+		d.MoveCursorRel(0, -args[0])
 	case 'B': // Cursor Down, one optional numeric arg, default 1
-		if len(args) == 1 {
-			d.MoveCursorRel(0, args[0])
-		}
+		d.MoveCursorRel(0, args[0])
 	case 'C': // Cursor Right, one optional numeric arg, default 1
-		if len(args) == 1 {
-			d.MoveCursorRel(args[0], 0)
-		}
+		d.MoveCursorRel(args[0], 0)
 	case 'D': // Cursor Left, one optional numeric arg, default 1
-		if len(args) == 1 {
-			d.MoveCursorRel(-args[0], 0)
-		}
+		d.MoveCursorRel(-args[0], 0)
 	case 'E': // Moves cursor to beginning of the line n (default 1) lines down.
-		if len(args) == 1 {
-			d.MoveCursorRel(-d.cols, args[0])
-		}
+		d.MoveCursorRel(-d.cols, args[0])
 	case 'F': // Moves cursor to beginning of the line n (default 1) lines up.
-		if len(args) == 1 {
-			d.MoveCursorRel(-d.cols, -args[0])
-		}
+		d.MoveCursorRel(-d.cols, -args[0])
 	case 'G': // Moves the cursor to column n (default 1).
-		if len(args) == 1 {
-			d.MoveCursorAbs(args[0]-1, d.cursor.row)
-		}
+		d.MoveCursorAbs(args[0]-1, d.cursor.row)
 	case 'H': // Cursor position, Moves the cursor to row n, column m. The values are 1-based, and default to 1 (top left corner) if omitted. A sequence such as CSI ;5H is a synonym for CSI 1;5H as well as CSI 17;H is the same as CSI 17H and CSI 17;1H
 		var n, m int = 1, 1
 		switch len(args) {
@@ -112,8 +98,7 @@ func (d *Device) HandleCSISequence(seq []rune) {
 		d.scrollRegion, d.scrollArea = r, a
 	case 'P': // DCH Delete Character. Delete character(s) to the right of the cursor, shifting as needed
 		curs := d.cursorPt()
-		// TODO: use acceleration where possible
-		d.VectorScroll(
+		d.Render.VectorScroll(
 			image.Rectangle{Min: curs, Max: curs.Add(image.Pt(d.ColsRemaining()*d.Render.cell.Dx(), d.Render.cell.Dy()))},
 			image.Pt(d.Render.cell.Dx()*args[0], 0))
 		d.Clear(d.cols-args[0], d.cursor.row, d.cols, d.cursor.row+1)
