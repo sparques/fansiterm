@@ -105,6 +105,7 @@ type Render struct {
 	DisplayFunc func()
 
 	scroll       func(int)
+	regionScroll func(image.Rectangle, int)
 	vectorScroll func(image.Rectangle, image.Point)
 	fill         func(image.Rectangle, color.Color)
 }
@@ -227,6 +228,14 @@ func New(cols, rows int, buf draw.Image) *Device {
 	} else {
 		d.Render.scroll = func(pixAmt int) {
 			softVectorScroll(d.Render, d.Render.bounds, image.Pt(0, pixAmt))
+		}
+	}
+
+	if scrollable, ok := d.Render.Image.(gfx.RegionScroller); ok {
+		d.Render.regionScroll = scrollable.RegionScroll
+	} else {
+		d.Render.regionScroll = func(region image.Rectangle, pixAmt int) {
+			softVectorScroll(d.Render, region, image.Pt(0, pixAmt))
 		}
 	}
 
@@ -510,7 +519,7 @@ func (d *Device) Scroll(rowAmount int) {
 	}
 
 	// scrollArea is set; must scroll a subsection
-	d.Render.VectorScroll(d.scrollArea, image.Pt(0, rowAmount*d.Render.cell.Dy()))
+	d.Render.RegionScroll(d.scrollArea, rowAmount*d.Render.cell.Dy())
 
 	// fill in scrolls section with background
 	if rowAmount > 0 {

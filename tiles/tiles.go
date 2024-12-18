@@ -26,6 +26,9 @@ type FontTileSet struct {
 	image.Rectangle
 	// Glyphs maps a rune to a slice of alpha pixel data
 	Glyphs map[rune][]uint8
+
+	// glyph cache to prevent so many mallocs
+	glyph image.Alpha
 }
 
 func NewFontTileSet() *FontTileSet {
@@ -40,11 +43,15 @@ func (fts *FontTileSet) Merge(src *FontTileSet) {
 }
 
 func (fts *FontTileSet) Glyph(r rune) *image.Alpha {
-	return &image.Alpha{
-		Pix:    fts.Glyphs[r],
-		Stride: fts.Dx(),
-		Rect:   fts.Rectangle,
-	}
+	// return &image.Alpha{
+	// 	Pix:    fts.Glyphs[r],
+	// 	Stride: fts.Dx(),
+	// 	Rect:   fts.Rectangle,
+	// }
+	fts.glyph.Pix = fts.Glyphs[r]
+	fts.glyph.Rect = fts.Rectangle
+	fts.glyph.Stride = fts.Dx()
+	return &fts.glyph
 }
 
 func (fts *FontTileSet) GetTile(r rune) (image.Image, bool) {
@@ -69,8 +76,8 @@ func (fts *FontTileSet) DrawTile(r rune, dst draw.Image, pt image.Point, fg colo
 		pix = EmptyTile.Pix
 
 	}
-	for x := 0; x < fts.Rectangle.Dx(); x++ {
-		for y := 0; y < fts.Rectangle.Dy(); y++ {
+	for y := 0; y < fts.Rectangle.Dy(); y++ {
+		for x := 0; x < fts.Rectangle.Dx(); x++ {
 			switch pix[y*fts.Dx()+x] {
 			// skip all the math for the most common values: 0x00 and 0xFF
 			case 0x00:

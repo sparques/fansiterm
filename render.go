@@ -256,6 +256,10 @@ func (r *Render) Scroll(pixAmt int) {
 	r.scroll(pixAmt)
 }
 
+func (r *Render) RegionScroll(region image.Rectangle, pixAmt int) {
+	r.regionScroll(region, pixAmt)
+}
+
 func (r *Render) VectorScroll(region image.Rectangle, vector image.Point) {
 	r.vectorScroll(region, vector)
 }
