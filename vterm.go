@@ -223,26 +223,37 @@ func New(cols, rows int, buf draw.Image) *Device {
 	d.attrDefault.Bg = colorSystem.PaletteANSI[0]
 
 	// use hardware accelerated functions where possible
-	if scrollable, ok := d.Render.Image.(gfx.Scroller); ok {
-		d.Render.scroll = scrollable.Scroll
+	// VectorScroll is the most flexible and least performant, even if implemented in hardware.
+	// VectorScroll can be used to perform a RegionScroll and a Scroll
+	// if the underlaying driver does not suppoert RegionScroll or
+	// Scroll. We use a priority fallback order:
+	// First, use driver supported VectorScroll otherwise use software
+	// Use driver supported RegionScroll otherwise use VectorScroll
+	// Use driver supported Scroll if supported, otherwise fall back
+	// to RegionScroll.
+	if scrollable, ok := d.Render.Image.(gfx.VectorScroller); ok {
+		d.Render.vectorScroll = scrollable.VectorScroll
 	} else {
-		d.Render.scroll = func(pixAmt int) {
-			softVectorScroll(d.Render, d.Render.bounds, image.Pt(0, pixAmt))
-		}
+		d.Render.vectorScroll = func(r image.Rectangle, v image.Point) { softVectorScroll(d.Render.Image, r, v) }
 	}
 
 	if scrollable, ok := d.Render.Image.(gfx.RegionScroller); ok {
 		d.Render.regionScroll = scrollable.RegionScroll
 	} else {
 		d.Render.regionScroll = func(region image.Rectangle, pixAmt int) {
-			softVectorScroll(d.Render, region, image.Pt(0, pixAmt))
+			d.Render.vectorScroll(region, image.Pt(0, pixAmt))
 		}
 	}
 
-	if scrollable, ok := d.Render.Image.(gfx.VectorScroller); ok {
-		d.Render.vectorScroll = scrollable.VectorScroll
+	// we can only use hardware scroll if fansi term is using the whole
+	// screen, otherwise we need to do a region scroll or vector scroll
+	if scrollable, ok := d.Render.Image.(gfx.Scroller); ok && d.Render.Bounds().Eq(buf.Bounds()) {
+		d.Render.scroll = scrollable.Scroll
 	} else {
-		d.Render.vectorScroll = func(r image.Rectangle, v image.Point) { softVectorScroll(d.Render.Image, r, v) }
+		// fall back on vectorScroll, be it software or hardware
+		d.Render.scroll = func(pixAmt int) {
+			d.Render.regionScroll(d.Render.bounds, pixAmt)
+		}
 	}
 
 	if fillable, ok := d.Render.Image.(gfx.Filler); ok {
