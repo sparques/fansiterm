@@ -1,4 +1,3 @@
-//go:build tilesetinconsolata
 package inconsolata
 
 import "image"

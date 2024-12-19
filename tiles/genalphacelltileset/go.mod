@@ -1,4 +1,4 @@
-module gentileset
+module genalphacelltileset
 
 go 1.22.2
 

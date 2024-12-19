@@ -144,7 +144,7 @@ type BitColor bool
 
 func (bc BitColor) RGBA() (r, g, b, a uint32) {
 	if bc {
-		a = 0xFF * 0x101
+		a = m
 	}
 	return
 }
@@ -182,7 +182,7 @@ type AlphaCell struct {
 }
 
 func (ac *AlphaCell) At(x, y int) color.Color {
-	return BitColor((ac.Pix[y]<<x)&8 == 8)
+	return BitColor((ac.Pix[y]<<x)&0x80 == 0x80)
 }
 
 func (ac *AlphaCell) Set(x, y int, c color.Color) {
@@ -218,9 +218,6 @@ func (a *Alpha1) Bounds() image.Rectangle {
 }
 
 func (a *Alpha1) At(x, y int) (c color.Color) {
-	if !image.Pt(x, y).In(a.Rect) {
-		return BitColor(false)
-	}
 	return BitColor((a.Pix[y*a.Stride+x/8]<<(x%8))&0x80 == 0x80)
 }
 
@@ -238,6 +235,8 @@ type AlphaCellTileSet struct {
 	image.Rectangle
 	// Glyphs maps a rune to a slice of alpha pixel data
 	Glyphs map[rune][16]uint8
+
+	glyph AlphaCell
 }
 
 func NewAlphaCellTileSet() *AlphaCellTileSet {
@@ -248,9 +247,11 @@ func NewAlphaCellTileSet() *AlphaCellTileSet {
 }
 
 func (ats *AlphaCellTileSet) Glyph(r rune) *AlphaCell {
-	return &AlphaCell{
-		Pix: ats.Glyphs[r],
-	}
+	// return &AlphaCell{
+	// 	Pix: ats.Glyphs[r],
+	// }
+	ats.glyph.Pix = ats.Glyphs[r]
+	return &ats.glyph
 }
 
 func (ats *AlphaCellTileSet) GetTile(r rune) (image.Image, bool) {
@@ -274,7 +275,7 @@ func (ats *AlphaCellTileSet) DrawTile(r rune, dst draw.Image, pt image.Point, fg
 
 	_, _, _, a := bg.RGBA()
 
-	if a < 127 {
+	if a < m/2 {
 		// bg is transparent (transparent enough), so do not draw it
 		for y := range len(pix) {
 			for x := 0; x < 8; x++ {
@@ -397,7 +398,7 @@ func (fc FullColorTileSet) DrawTile(r rune, dst draw.Image, pt image.Point, fg c
 			switch alpha {
 			case 0x00:
 				dst.Set(pt.X+x, pt.Y+y, bg)
-			case 0xFF * 0x101:
+			case m:
 				dst.Set(pt.X+x, pt.Y+y, color.RGBA{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8), 255})
 			default:
 				bgr, bgg, bgb, _ := bg.RGBA()
@@ -416,7 +417,7 @@ func (fc FullColorTileSet) DrawTile(r rune, dst draw.Image, pt image.Point, fg c
 // kinda sorta halfway fake an italic character set. Also makes your text-based
 // drawings look drunk.
 type Italics struct {
-	*FontTileSet
+	Tiler
 }
 
 func (i Italics) DrawTile(r rune, dst draw.Image, pt image.Point, fg color.Color, bg color.Color) {
@@ -430,8 +431,7 @@ func (i Italics) DrawTile(r rune, dst draw.Image, pt image.Point, fg color.Color
 }
 
 func (i Italics) GetTile(r rune) (image.Image, bool) {
-	g, ok := i.FontTileSet.GetTile(r)
-	// return rotateImage(g, -10), ok
+	g, ok := i.Tiler.GetTile(r)
 	return italicize(g), ok
 }
 
@@ -441,8 +441,8 @@ type Bold struct {
 
 // drawTile is a broadly compatible, if not efficient, way to draw a tile.
 func drawTile(dst draw.Image, pt image.Point, src image.Image, fg color.Color, bg color.Color) {
-	for x := 0; x < src.Bounds().Dx(); x++ {
-		for y := 0; y < src.Bounds().Dy(); y++ {
+	for y := range src.Bounds().Dy() {
+		for x := range src.Bounds().Dx() {
 			// only use the alpha channel from ts[r]?
 			// could have non-white or non-black pixels values override the foreground color.
 			// performance enhancements? Considering checling if ts[r] is an image.Alpha or
@@ -462,7 +462,8 @@ func drawTile(dst draw.Image, pt image.Point, src image.Image, fg color.Color, b
 						alphaBlend(bgr, fgr, alpha),
 						alphaBlend(bgg, fgg, alpha),
 						alphaBlend(bgb, fgb, alpha),
-						255})
+						255,
+					})
 			}
 		}
 	}
@@ -475,17 +476,21 @@ type imageTransform struct {
 	tx func(x, y int) (int, int)
 }
 
+func clamp(a, upper, lower int) int {
+	return min(max(a, lower), upper)
+}
+
 func italicize(img image.Image) imageTransform {
 	return imageTransform{
 		Image: img,
 		tx: func(x, y int) (int, int) {
 			switch {
 			case y < 6:
-				return x - 1, y
+				return max(x-1, 0), y
 			case y < 10:
 				return x, y
 			default:
-				return x + 1, y
+				return min(x+1, 7), y
 			}
 			return x, y
 		},
@@ -519,7 +524,7 @@ func rectangleAt(rect image.Rectangle, pt image.Point) image.Rectangle {
 }
 
 // m is the maximum value for an unsigned 16bit integer
-const m = 1<<16 - 1
+const m = 0xFFFF
 
 // alphaBlend blends together two values. Fully opaque (alpha == m) means
 // all fg is shown, fully transparent (alpha == 0) means only bg is shown.
