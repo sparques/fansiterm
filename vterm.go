@@ -461,7 +461,7 @@ func (d *Device) Write(data []byte) (n int, err error) {
 			d.cursor.col = max(d.cursor.col-1, 0)
 		case '\t': // tab
 			// move cursor to nearest multiple of TabSize, but don't move to next row
-			d.cursor.col = min(d.cols-2, d.cursor.col+d.Config.TabSize-(d.cursor.col%d.Config.TabSize))
+			d.cursor.col = min(d.cols-1, d.cursor.col+d.Config.TabSize-(d.cursor.col%d.Config.TabSize))
 		case '\r': // carriage return
 			d.cursor.col = 0
 		case '\n': // linefeed
