@@ -66,50 +66,6 @@ type Device struct {
 	sync.Mutex
 }
 
-// Cursor is used to track the cursor.
-type Cursor struct {
-	// col is the current column. This is zero indexed.
-	col int
-	// row is the current row. This is zero indexed.
-	row int
-	// show is whether we should be showing the the cursor.
-	show bool
-	// visible is whether or not the cursor is currently visible. When rendering text,
-	// we hide the cursor, then re-enable it when done.
-	visible bool
-
-	// prevPos is for saving cursor position; The indicies are col, row.
-	prevPos [2]int
-}
-
-type Render struct {
-	draw.Image
-	colorSystem *colorSystem
-	bounds      image.Rectangle
-	active      struct {
-		tileSet *tiles.Tiler
-		fg      Color
-		bg      Color
-		// G tracks our character sets, for now 0 and 1
-		g []*tiles.Tiler
-		// tracking shift-in/out
-		shift int
-	}
-	CharSet       tiles.Tiler
-	AltCharSet    tiles.Tiler
-	BoldCharSet   tiles.Tiler
-	ItalicCharSet tiles.Tiler
-	cell          image.Rectangle
-	cursorFunc    cursorRectFunc
-	// DisplayFunc is called after a write to the terminal. This is for some displays that require a flush / blit / sync call.
-	DisplayFunc func()
-
-	scroll       func(int)
-	regionScroll func(image.Rectangle, int)
-	vectorScroll func(image.Rectangle, image.Point)
-	fill         func(image.Rectangle, color.Color)
-}
-
 type Config struct {
 	TabSize             int
 	StrikethroughHeight int
@@ -217,6 +173,10 @@ func New(cols, rows int, buf draw.Image) *Device {
 		Properties:   make(map[Property]string),
 		scrollRegion: [2]int{0, rows - 1},
 	}
+
+	// link cursor's rows/cols back to *Device
+	d.cursor.rows = &d.rows
+	d.cursor.cols = &d.cols
 
 	// Establish defaults
 	d.attrDefault.Fg = colorSystem.PaletteANSI[7]
@@ -328,7 +288,7 @@ func (d *Device) Reset() {
 	d.Render.active.g[1] = &d.Render.AltCharSet
 	d.Render.active.tileSet = d.Render.active.g[0]
 	d.clearAll()
-	d.MoveCursorAbs(1, 1)
+	d.cursor.MoveAbs(1, 1)
 	d.scrollArea = image.Rectangle{}
 	d.scrollRegion = [2]int{0, d.rows - 1}
 }
@@ -383,7 +343,7 @@ func isFinal(r rune) bool {
 }
 
 // GetReader returns an io.Reader that fansiterm will use for output.
-// This uses an io.Pipe under the hood. Tthe write portion of the
+// This uses an io.Pipe under the hood. The write portion of the
 // pipe displaces (*Device).Output.
 // A new pipe is instantiated every time this is called and will
 // displace the old pipe.
@@ -513,21 +473,6 @@ func (d *Device) Scroll(rowAmount int) {
 }
 
 func (d *Device) VectorScrollCells(c1, r1, c2, r2, cn, rn int) {
-}
-
-// ColsRemaining returns how many columns are remaining until EOL
-func (d *Device) ColsRemaining() int {
-	return d.cols - d.cursor.col
-}
-
-func (d *Device) MoveCursorRel(x, y int) {
-	d.cursor.col = bound(x+d.cursor.col, 0, d.cols-1)
-	d.cursor.row = bound(y+d.cursor.row, 0, d.rows-1)
-}
-
-func (d *Device) MoveCursorAbs(x, y int) {
-	d.cursor.col = bound(x, 0, d.cols-1)
-	d.cursor.row = bound(y, 0, d.rows-1)
 }
 
 func (d *Device) setScrollRegion(start, end int) {

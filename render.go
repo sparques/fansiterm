@@ -24,6 +24,34 @@ var (
 
 var unicode = runewidth.NewCondition()
 
+type Render struct {
+	draw.Image
+	colorSystem *colorSystem
+	bounds      image.Rectangle
+	active      struct {
+		tileSet *tiles.Tiler
+		fg      Color
+		bg      Color
+		// G tracks our character sets, for now 0 and 1
+		g []*tiles.Tiler
+		// tracking shift-in/out
+		shift int
+	}
+	CharSet       tiles.Tiler
+	AltCharSet    tiles.Tiler
+	BoldCharSet   tiles.Tiler
+	ItalicCharSet tiles.Tiler
+	cell          image.Rectangle
+	cursorFunc    cursorRectFunc
+	// DisplayFunc is called after a write to the terminal. This is for some displays that require a flush / blit / sync call.
+	DisplayFunc func()
+
+	scroll       func(int)
+	regionScroll func(image.Rectangle, int)
+	vectorScroll func(image.Rectangle, image.Point)
+	fill         func(image.Rectangle, color.Color)
+}
+
 func (d *Device) UpdateAttr() {
 	d.updateAttr()
 }

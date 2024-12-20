@@ -66,7 +66,7 @@ func (d *Device) handleFansiSequence(seq []rune) {
 		if targetRect.Dx()%d.Render.cell.Dx() != 0 {
 			x++
 		}
-		d.MoveCursorRel(x, 0)
+		d.cursor.MoveRel(x, 0)
 
 	case 'C': // C for Cell
 		// ESC/C<pixdata>ESC\
@@ -99,7 +99,7 @@ func (d *Device) handleFansiSequence(seq []rune) {
 			Rectangle: d.Render.cell,
 		}
 		draw.Draw(d.Render, d.Render.cell.Add(d.cursorPt()), img, pt, draw.Over)
-		d.MoveCursorRel(1, 0)
+		d.cursor.MoveRel(1, 0)
 	case 'F': // F for Fill
 		var (
 			rect image.Rectangle

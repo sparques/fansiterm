@@ -18,22 +18,22 @@ func (d *Device) handleCSISequence(seq []rune) {
 		curs := d.cursorPt()
 
 		d.Render.VectorScroll(
-			image.Rectangle{Min: curs, Max: curs.Add(image.Pt(d.ColsRemaining()*d.Render.cell.Dx(), d.Render.cell.Dy()))},
+			image.Rectangle{Min: curs, Max: curs.Add(image.Pt(d.cursor.ColsRemaining()*d.Render.cell.Dx(), d.Render.cell.Dy()))},
 			image.Pt(-d.Render.cell.Dx()*args[0], 0))
 	case 'A': // Cursor Up, one optional numeric arg, default 1
-		d.MoveCursorRel(0, -args[0])
+		d.cursor.MoveRel(0, -args[0])
 	case 'B': // Cursor Down, one optional numeric arg, default 1
-		d.MoveCursorRel(0, args[0])
+		d.cursor.MoveRel(0, args[0])
 	case 'C': // Cursor Right, one optional numeric arg, default 1
-		d.MoveCursorRel(args[0], 0)
+		d.cursor.MoveRel(args[0], 0)
 	case 'D': // Cursor Left, one optional numeric arg, default 1
-		d.MoveCursorRel(-args[0], 0)
+		d.cursor.MoveRel(-args[0], 0)
 	case 'E': // Moves cursor to beginning of the line n (default 1) lines down.
-		d.MoveCursorRel(-d.cols, args[0])
+		d.cursor.MoveRel(-d.cols, args[0])
 	case 'F': // Moves cursor to beginning of the line n (default 1) lines up.
-		d.MoveCursorRel(-d.cols, -args[0])
+		d.cursor.MoveRel(-d.cols, -args[0])
 	case 'G': // Moves the cursor to column n (default 1).
-		d.MoveCursorAbs(args[0]-1, d.cursor.row)
+		d.cursor.MoveAbs(args[0]-1, d.cursor.row)
 	case 'H': // Cursor position, Moves the cursor to row n, column m. The values are 1-based, and default to 1 (top left corner) if omitted. A sequence such as CSI ;5H is a synonym for CSI 1;5H as well as CSI 17;H is the same as CSI 17H and CSI 17;1H
 		var n, m int = 1, 1
 		switch len(args) {
@@ -44,7 +44,7 @@ func (d *Device) handleCSISequence(seq []rune) {
 			n = args[0]
 		}
 
-		d.MoveCursorAbs(m-1, n-1)
+		d.cursor.MoveAbs(m-1, n-1)
 	case 'J': // Clears part of the screen. If n is 0 (or missing), clear from cursor to end of screen. If n is 1, clear from cursor to beginning of the screen. If n is 2, clear entire screen (and moves cursor to upper left on DOS ANSI.SYS). If n is 3, clear entire screen and delete all lines saved in the scrollback buffer (this feature was added for xterm and is supported by other terminal applications).
 		args = getNumericArgs(seq[:len(seq)-1], 0)
 		switch args[0] {
@@ -99,7 +99,7 @@ func (d *Device) handleCSISequence(seq []rune) {
 	case 'P': // DCH Delete Character. Delete character(s) to the right of the cursor, shifting as needed
 		curs := d.cursorPt()
 		d.Render.VectorScroll(
-			image.Rectangle{Min: curs, Max: curs.Add(image.Pt(d.ColsRemaining()*d.Render.cell.Dx(), d.Render.cell.Dy()))},
+			image.Rectangle{Min: curs, Max: curs.Add(image.Pt(d.cursor.ColsRemaining()*d.Render.cell.Dx(), d.Render.cell.Dy()))},
 			image.Pt(d.Render.cell.Dx()*args[0], 0))
 		d.Clear(d.cols-args[0], d.cursor.row, d.cols, d.cursor.row+1)
 
@@ -280,8 +280,7 @@ func (d *Device) handleCSISequence(seq []rune) {
 		}
 		d.setScrollRegion(args[0], args[1])
 	case 's': // save cursor position
-		d.cursor.prevPos[0] = d.cursor.col
-		d.cursor.prevPos[1] = d.cursor.row
+		d.cursor.SavePos()
 	case 't':
 		switch args[0] {
 		case 18: // report terminal size in cells
@@ -290,8 +289,7 @@ func (d *Device) handleCSISequence(seq []rune) {
 			fmt.Fprintf(d.Output, "\x1b[9;%d;%dt", d.Render.Bounds().Dy(), d.Render.Bounds().Dx())
 		}
 	case 'u': // restore cursor position
-		d.cursor.col = d.cursor.prevPos[0]
-		d.cursor.row = d.cursor.prevPos[1]
+		d.cursor.RestorePos()
 	default:
 		if ShowUnhandled {
 			fmt.Println("Unhandled CSI:", seqString(seq))
