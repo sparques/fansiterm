@@ -224,6 +224,7 @@ func softRegionScroll(img draw.Image, region image.Rectangle, amount int) {
 func softVectorScroll(img draw.Image, region image.Rectangle, vector image.Point) {
 	region = img.Bounds().Intersect(region)
 	var dst, src image.Point
+
 	for y := range region.Dy() {
 		if vector.Y >= 0 {
 			dst.Y = region.Min.Y + y
@@ -243,14 +244,6 @@ func softVectorScroll(img draw.Image, region image.Rectangle, vector image.Point
 
 	return
 }
-
-// func (d *Device) VectorScroll(region image.Rectangle, vector image.Point) {
-// 	if scrollable, ok := d.Render.Image.(gfx.VectorScroller); ok {
-// 		scrollable.VectorScroll(region, vector)
-// 	} else {
-// 		softVectorScroll(d.Render.Image, region, vector)
-// 	}
-// }
 
 func (r *Render) Scroll(pixAmt int) {
 	r.scroll(pixAmt)

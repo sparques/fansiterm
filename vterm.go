@@ -101,7 +101,7 @@ type Render struct {
 	ItalicCharSet tiles.Tiler
 	cell          image.Rectangle
 	cursorFunc    cursorRectFunc
-	// DisplayFunc is called after a write to the terminal. This is for some displays require a flush / blit / sync call.
+	// DisplayFunc is called after a write to the terminal. This is for some displays that require a flush / blit / sync call.
 	DisplayFunc func()
 
 	scroll       func(int)
@@ -205,7 +205,7 @@ func New(cols, rows int, buf draw.Image) *Device {
 			AltCharSet:    altCharSet,
 			CharSet:       charSet,
 			BoldCharSet:   sweet16.Regular8x16,
-			ItalicCharSet: &tiles.Italics{charSet},
+			ItalicCharSet: &tiles.Italics{Tiler: charSet},
 			cell:          cell,
 			cursorFunc:    blockRect,
 		},
@@ -224,8 +224,8 @@ func New(cols, rows int, buf draw.Image) *Device {
 
 	// use hardware accelerated functions where possible
 	// VectorScroll is the most flexible and least performant, even if implemented in hardware.
-	// VectorScroll can be used to perform a RegionScroll and a Scroll
-	// if the underlaying driver does not suppoert RegionScroll or
+	// VectorScroll can be used to perform RegionScroll and Scroll
+	// if the underlaying driver does not support RegionScroll or
 	// Scroll. We use a priority fallback order:
 	// First, use driver supported VectorScroll otherwise use software
 	// Use driver supported RegionScroll otherwise use VectorScroll
@@ -320,34 +320,6 @@ func NewWithBuf(buf draw.Image) *Device {
 	rows := buf.Bounds().Dy() / 16
 
 	return New(cols, rows, buf)
-}
-
-// TODO: FIXME
-func (d *Device) HandleResize() {
-	cols := d.Render.Bounds().Dx() / d.Render.cell.Dx()
-	rows := d.Render.Bounds().Dy() / d.Render.cell.Dy()
-
-	//draw.Draw(buf, buf.Bounds(), image.Black, image.Point{}, draw.Src)
-
-	d.cols = cols
-	d.rows = rows
-
-	offset := image.Pt((d.Render.Bounds().Dx()%d.Render.cell.Dx())/2, (d.Render.Bounds().Dy()%d.Render.cell.Dy())/2)
-
-	if !(offset.X == 0 && offset.Y == 0) {
-		// first save a copy
-		orig := image.NewRGBA(d.Render.Bounds())
-		draw.Draw(orig, orig.Bounds(), d.Render.Image, orig.Bounds().Min, draw.Src)
-
-		// clear whole thing
-		draw.Draw(d.Render, d.Render.Bounds(), d.attr.Bg, d.Render.Bounds().Min, draw.Src)
-
-		// Setup the offset
-		d.Render.Image = xform.SubImage(d.Render.Image, image.Rect(0, 0, cols*d.Render.cell.Dx(), rows*d.Render.cell.Dy()).Add(offset))
-
-		// write copy to offset-image
-		draw.Draw(d.Render, d.Render.Bounds(), orig, orig.Bounds().Min, draw.Src)
-	}
 }
 
 func (d *Device) Reset() {
@@ -507,7 +479,7 @@ func (d *Device) Write(data []byte) (n int, err error) {
 			}
 			// Render rune and then
 			// increment cursor by width of rune
-			// TODO: fix corner case where a >1 width rune happens
+			// FIXME: corner case where a >1 width rune happens
 			// at the last column
 			d.cursor.col += d.RenderRune(runes[i])
 		}
