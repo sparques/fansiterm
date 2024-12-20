@@ -28,6 +28,16 @@ var altToUnicode = map[rune]rune{
 	0x76: 9524,   // T up
 	0x77: 9516,   // T down
 	0x78: 0x2502, // vertical
+
+	// nonstandard
+	'(': 0x25D6,
+	')': 0x25D7,
+
+	// mappings to fansiterm specific Private Use Area U+E000..U+F8FF
+	'{': 0xe000,
+	'}': 0xe001,
+	'<': 0xe002,
+	'>': 0xe003,
 }
 
 // altCharsetViaUnicode takes a tiles.Tiler and remaps code points
