@@ -229,7 +229,8 @@ func (d *Device) Clear(x1, y1, x2, y2 int) {
 }
 
 func (d *Device) clearAll() {
-	d.Render.Fill(d.Render.bounds, d.attr.Bg)
+	// this is dumb, how to do better?
+	d.Render.Fill(d.Render.bounds.Sub(d.Render.bounds.Min), d.attr.Bg)
 }
 
 // Bounds returns the image.Rectangle that aligns with terminal cell boundaries

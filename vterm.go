@@ -288,7 +288,7 @@ func (d *Device) Reset() {
 	d.Render.active.g[1] = &d.Render.AltCharSet
 	d.Render.active.tileSet = d.Render.active.g[0]
 	d.clearAll()
-	d.cursor.MoveAbs(1, 1)
+	d.cursor.MoveAbs(0, 0)
 	d.scrollArea = image.Rectangle{}
 	d.scrollRegion = [2]int{0, d.rows - 1}
 }
