@@ -95,25 +95,6 @@ var ConfigDefault = Config{
 	BoldColors:          true,
 }
 
-var altToUnicode = map[rune]rune{
-	'0':  9608, // block
-	0x61: 9618, // 50% block
-	0x68: 9617, // 25% block
-	0x6a: 9496, // bottom right corner
-	0x6b: 9488, // top right corner
-	0x6c: 9484, // top left corner
-	0x6d: 9492, // bottom left corner
-	0x6e: 9532, // cross
-	'q':  9472, // horizontal
-	'r':  9472, // horizontal
-
-	0x74: 9500,   // T right
-	0x75: 9508,   // T left
-	0x76: 9524,   // T up
-	0x77: 9516,   // T down
-	0x78: 0x2502, // vertical
-}
-
 // New returns an initialized *Device. If buf is nil, an internal buffer is used. Otherwise
 // if you specify a hardware backed draw.Image, writes to Device will immediately be written
 // to the backing hardware--whether this is instaneous or buffered is up to the device and the
@@ -148,8 +129,7 @@ func New(cols, rows int, buf draw.Image) *Device {
 	bounds = bounds.Add(offset)
 
 	charSet := tiles.NewMultiTileSet(sweet16.Regular8x16, drawing.TileSet)
-	altCharSet := tiles.NewRemap(charSet)
-	altCharSet.Map = altToUnicode
+	altCharSet := altCharsetViaUnicode(charSet)
 
 	d := &Device{
 		cols: cols,
@@ -446,54 +426,4 @@ func (d *Device) Write(data []byte) (n int, err error) {
 	}
 
 	return len(data), nil
-}
-
-func (d *Device) Scroll(rowAmount int) {
-	// scrollArea Empty means scroll the whole screen--we can use more efficient algos for that
-	if d.scrollArea.Empty() {
-		d.Render.Scroll(rowAmount * d.Render.cell.Dy())
-		// fill in scrolls section with background
-		if rowAmount > 0 {
-			d.Clear(0, d.rows-rowAmount, d.cols, d.rows)
-		} else {
-			d.Clear(0, 0, d.cols, -rowAmount)
-		}
-		return
-	}
-
-	// scrollArea is set; must scroll a subsection
-	d.Render.RegionScroll(d.scrollArea, rowAmount*d.Render.cell.Dy())
-
-	// fill in scrolls section with background
-	if rowAmount > 0 {
-		d.Clear(0, d.scrollRegion[1]-rowAmount+1, d.cols, d.scrollRegion[1]+1)
-	} else {
-		d.Clear(0, d.scrollRegion[0], d.cols, d.scrollRegion[0]-rowAmount)
-	}
-}
-
-func (d *Device) VectorScrollCells(c1, r1, c2, r2, cn, rn int) {
-}
-
-func (d *Device) setScrollRegion(start, end int) {
-	d.scrollArea.Min.X = d.Render.Bounds().Min.X
-	d.scrollArea.Max.X = d.Render.Bounds().Max.X
-
-	d.scrollRegion[0] = bound((start - 1), 0, d.rows-1)
-	d.scrollRegion[1] = bound((end - 1), 0, d.rows-1)
-
-	d.scrollArea.Min.Y = (d.scrollRegion[0] * d.Render.cell.Dy())
-	// + 1 because internally we are 0-indexed, but ANSI escape codes are 1-indexed
-	// + another 1 because we want the bottom of the nth cell, not the top
-	d.scrollArea.Max.Y = (d.scrollRegion[1] + 1) * d.Render.cell.Dy()
-
-	// honor our offset
-	d.scrollArea = d.scrollArea.Add(d.Render.bounds.Min)
-	//draw.Draw(d.Render, d.scrollArea, xform.InvertColors(d.Render), d.scrollArea.Min, draw.Src)
-
-	// if you mess up setting the scroll area, just forget the whole thing.
-	if (start == 0 && end == 0) || start >= end || d.scrollArea.Eq(d.Render.Bounds()) {
-		d.scrollArea = image.Rectangle{}
-		d.scrollRegion = [2]int{0, d.rows - 1}
-	}
 }
