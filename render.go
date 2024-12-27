@@ -206,16 +206,6 @@ func (d *Device) Image() image.Image {
 	return d.Render // d.Render or d.Render.Image?
 }
 
-// func (d *Device) Fill(region image.Rectangle, c color.Color) {
-// 	region = region.Add(d.Render.bounds.Min).Intersect(d.Render.bounds)
-//
-// 	if fillable, ok := d.Render.Image.(gfx.Filler); ok {
-// 		fillable.Fill(region, c)
-// 		return
-// 	}
-// 	draw.Draw(d.Render, region, image.NewUniform(c), region.Min, draw.Src)
-// }
-
 // Clear writes a block of current background color in a rectangular shape,
 // specified in units of cells (rows and columns).
 // So (*Device).Clear(0,0, (*Device).cols, (*Device).rows) would
@@ -225,12 +215,11 @@ func (d *Device) Clear(x1, y1, x2, y2 int) {
 		x1*d.Render.cell.Dx(), y1*d.Render.cell.Dy(),
 		x2*d.Render.cell.Dx(), y2*d.Render.cell.Dy())
 
-	d.Render.Fill(rect, d.attr.Bg)
+	d.Render.Fill(rect.Add(d.Render.bounds.Min), d.attr.Bg)
 }
 
 func (d *Device) clearAll() {
-	// this is dumb, how to do better?
-	d.Render.Fill(d.Render.bounds.Sub(d.Render.bounds.Min), d.attr.Bg)
+	d.Render.Fill(d.Render.bounds, d.attr.Bg)
 }
 
 // Bounds returns the image.Rectangle that aligns with terminal cell boundaries
@@ -252,23 +241,37 @@ func softRegionScroll(img draw.Image, region image.Rectangle, amount int) {
 
 func softVectorScroll(img draw.Image, region image.Rectangle, vector image.Point) {
 	region = img.Bounds().Intersect(region)
-	var dst, src image.Point
+	var (
+		dst, src     image.Point
+		xstep, ystep int
+	)
 
-	for y := range region.Dy() {
-		if vector.Y >= 0 {
-			dst.Y = region.Min.Y + y
+	if vector.Y >= 0 {
+		dst.Y = region.Min.Y
+		ystep = 1
+	} else {
+		dst.Y = region.Max.Y - 1
+		ystep = -1
+	}
+
+	if vector.X >= 0 {
+		xstep = 1
+	} else {
+		xstep = -1
+	}
+
+	for range region.Dy() {
+		if vector.X >= 0 {
+			dst.X = region.Min.X
 		} else {
-			dst.Y = region.Max.Y - (y + 1)
+			dst.X = region.Max.X - 1
 		}
-		for x := range region.Dx() {
-			if vector.X >= 0 {
-				dst.X = region.Min.X + x
-			} else {
-				dst.X = region.Max.X - (x + 1)
-			}
+		for range region.Dx() {
 			src = dst.Add(vector).Mod(region)
 			img.Set(dst.X, dst.Y, img.At(src.X, src.Y))
+			dst.X += xstep
 		}
+		dst.Y += ystep
 	}
 
 	return
@@ -287,6 +290,6 @@ func (r *Render) VectorScroll(region image.Rectangle, vector image.Point) {
 }
 
 func (r *Render) Fill(region image.Rectangle, c color.Color) {
-	region = region.Add(r.bounds.Min).Intersect(r.bounds)
+	region = region.Intersect(r.bounds)
 	r.fill(region, c)
 }
