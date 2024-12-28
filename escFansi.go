@@ -116,7 +116,7 @@ func (d *Device) handleFansiSequence(seq []rune) {
 		}
 
 		rect = rect.Canon()
-		d.Render.Fill(rect, c)
+		d.Render.Fill(rect.Add(d.Render.bounds.Min), c)
 	case 'L': // L for line
 		var (
 			pt1, pt2 image.Point

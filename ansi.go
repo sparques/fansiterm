@@ -40,6 +40,10 @@ func (d *Device) handleEscSequence(seq []rune) {
 		d.cursor.row = d.cursor.prevPos[1]
 	case 'c': // reset
 		d.Reset()
+	// case '#': // ESC#8 "Confidence Test"
+	// 	d.cursor.MoveAbs(0, 0)
+	// 	// abuse inputBuf...
+	// 	d.inputBuf = append(d.inputBuf, slices.Repeat([]rune{'E'}, d.rows*d.cols)...)
 	case '[':
 		d.handleCSISequence(seq[2:])
 	case ']':

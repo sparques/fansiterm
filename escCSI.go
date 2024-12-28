@@ -3,6 +3,7 @@ package fansiterm
 import (
 	"fmt"
 	"image"
+	"image/draw"
 )
 
 func (d *Device) handleCSISequence(seq []rune) {
@@ -34,7 +35,7 @@ func (d *Device) handleCSISequence(seq []rune) {
 		d.cursor.MoveRel(-d.cols, -args[0])
 	case 'G': // Moves the cursor to column n (default 1).
 		d.cursor.MoveAbs(args[0]-1, d.cursor.row)
-	case 'H': // Cursor position, Moves the cursor to row n, column m. The values are 1-based, and default to 1 (top left corner) if omitted. A sequence such as CSI ;5H is a synonym for CSI 1;5H as well as CSI 17;H is the same as CSI 17H and CSI 17;1H
+	case 'H', 'f': // Cursor position, Moves the cursor to row n, column m. The values are 1-based, and default to 1 (top left corner) if omitted. A sequence such as CSI ;5H is a synonym for CSI 1;5H as well as CSI 17;H is the same as CSI 17H and CSI 17;1H
 		var n, m int = 1, 1
 		switch len(args) {
 		case 2:
@@ -104,13 +105,9 @@ func (d *Device) handleCSISequence(seq []rune) {
 		d.Clear(d.cols-args[0], d.cursor.row, d.cols, d.cursor.row+1)
 
 	case 'S': // Scroll whole page up by n (default 1) lines. New lines are added at the bottom.
-		if len(args) == 1 {
-			d.Scroll(-args[0])
-		}
+		d.Scroll(args[0])
 	case 'T': // Scroll whole page down by n (default 1) lines. New lines are added at the top.
-		if len(args) == 1 {
-			d.Scroll(args[0])
-		}
+		d.Scroll(-args[0])
 	case 'X': // Delete (clear) cells to the right of the cursor, on the same line
 		d.Clear(d.cursor.col, d.cursor.row, bound(args[0]+d.cursor.col, d.cursor.col+1, d.cols), d.cursor.row+1)
 	case 'c': // DA Device Attributes
@@ -259,16 +256,53 @@ func (d *Device) handleCSISequence(seq []rune) {
 			return
 		}
 		args := getNumericArgs(seq[1:len(seq)-1], 0)
+		var set bool
+		if seq[len(seq)-1] == 'h' {
+			set = true
+		}
 		switch args[0] {
+		case 0, 1: // cursor key mode
+			// enable: Application Mode
+			// disable: Cursor Mode.
+			// This is more an input thing--whatever is writing to fansiterm
+			// should check this setting and adjust arrow-key input
+			// accordingly.ESC?12h
+			d.Config.CursorKeyApplicationMode = set
+		case 7: // enable/disable wraparound mode.
+			// my god, getting end of line and end of terminal line wrapping
+			// working the first place was hard enough.
+			// wraparound is the process of if a line over flows (reaches EOL) it should continue onto the next line. With wrap around disabled, once the cursor gets to the end of the line, it no longer advances.
+			d.Config.Wraparound = !set
+		case 12: // local echo
 		case 25: // show/hide cursor
-			if seq[len(seq)-1] == 'l' {
+			if set {
+				d.cursor.show = true
+			} else {
 				d.cursor.show = false
 				if d.cursor.visible {
 					d.toggleCursor()
 				}
-			} else {
-				d.cursor.show = true
 			}
+		case 1000, 1006: // report mouse clicks
+		// no, not supported
+		case 47, 1049: // alt screen enable/disable
+			// 47 is save/restore screen.
+			// 1049 is use alternate screen.
+			// For fansiterm, there's no difference.
+			if !d.Config.AltScreen {
+				return
+			}
+			if set {
+				// use AltScreen; just save the buffer
+				d.saveBuf = image.NewRGBA(d.Render.bounds)
+				draw.Draw(d.saveBuf, d.Render.bounds, d.Render, image.Point{}, draw.Src)
+				d.clearAll()
+			} else {
+				// stop using alt screen, show the saved buffer
+				draw.Draw(d.Render, d.Render.bounds, d.saveBuf, image.Point{}, draw.Src)
+			}
+		case 2004: //bracketed paste enable disable
+			// given fansiterm's intended use case, this is going unimplemented.
 		default:
 			if ShowUnhandled {
 				fmt.Println("Unhandled Private Sequence", seqString(seq))

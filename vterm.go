@@ -56,6 +56,10 @@ type Device struct {
 	// Miscellaneous properties, like "Window Title"
 	Properties map[Property]string
 
+	// saveBuf is used to store the main buffer when the alternate screen
+	// is used.
+	saveBuf draw.Image
+
 	// Output specifies the program attached to the terminal. This should be the
 	// same interface that the input mechanism (whatever that may be) uses to write
 	// to the program. On POSIX systems, this would be equivalent to Stdin.
@@ -70,8 +74,12 @@ type Config struct {
 	TabSize             int
 	StrikethroughHeight int
 	CursorStyle         int
-	CursorBlink         bool
 	BoldColors          bool
+	// Enable the alternate screen buffer. Probably do not have enough
+	// RAM on MCUs to use this option. Default is false.
+	AltScreen                bool
+	Wraparound               bool
+	CursorKeyApplicationMode bool
 }
 
 type Attr struct {
@@ -187,12 +195,26 @@ func New(cols, rows int, buf draw.Image) *Device {
 
 	// we can only use hardware scroll if fansi term is using the whole
 	// screen, otherwise we need to do a region scroll or vector scroll
-	if scrollable, ok := d.Render.Image.(gfx.Scroller); ok && d.Render.Bounds().Eq(buf.Bounds()) {
-		d.Render.scroll = scrollable.Scroll
-	} else {
-		// fall back on vectorScroll, be it software or hardware
+	switch {
+	case offset == image.Point{}:
+		// offset is zero, we can use Scroll or RegionScroll
+		if scrollable, ok := d.Render.Image.(gfx.Scroller); ok && d.Render.Bounds().Eq(buf.Bounds()) {
+			d.Render.scroll = scrollable.Scroll
+		} else {
+			// fall back on vectorScroll, be it software or hardware
+			d.Render.scroll = func(pixAmt int) {
+				d.Render.regionScroll(d.Render.bounds, pixAmt)
+			}
+		}
+	case offset.X == 0:
+		// offset only exists for Y, can use RegionScroll
 		d.Render.scroll = func(pixAmt int) {
 			d.Render.regionScroll(d.Render.bounds, pixAmt)
+		}
+	default:
+		// there's a X and Y offset, must use VectorScroll
+		d.Render.scroll = func(pixAmt int) {
+			d.Render.vectorScroll(d.Render.bounds, image.Pt(0, pixAmt))
 		}
 	}
 
@@ -422,6 +444,9 @@ func (d *Device) Write(data []byte) (n int, err error) {
 			// FIXME: corner case where a >1 width rune happens
 			// at the last column
 			d.cursor.col += d.RenderRune(runes[i])
+			if d.Config.Wraparound {
+				d.cursor.col = bound(d.cursor.col, 0, d.cols-1)
+			}
 		}
 	}
 

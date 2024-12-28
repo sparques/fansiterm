@@ -1,6 +1,6 @@
 module github.com/sparques/fansiterm
 
-go 1.22.2
+go 1.23
 
 require (
 	github.com/mattn/go-runewidth v0.0.16
