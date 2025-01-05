@@ -295,11 +295,11 @@ func (d *Device) handleCSISequence(seq []rune) {
 			if set {
 				// use AltScreen; just save the buffer
 				d.saveBuf = image.NewRGBA(d.Render.bounds)
-				draw.Draw(d.saveBuf, d.Render.bounds, d.Render, image.Point{}, draw.Src)
+				draw.Draw(d.saveBuf, d.Render.bounds, d.Render, d.Render.bounds.Min, draw.Src)
 				d.clearAll()
 			} else {
 				// stop using alt screen, show the saved buffer
-				draw.Draw(d.Render, d.Render.bounds, d.saveBuf, image.Point{}, draw.Src)
+				draw.Draw(d.Render, d.Render.bounds, d.saveBuf, d.Render.bounds.Min, draw.Src)
 			}
 		case 2004: //bracketed paste enable disable
 			// given fansiterm's intended use case, this is going unimplemented.

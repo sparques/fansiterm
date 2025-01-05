@@ -1,6 +1,9 @@
 package fansiterm
 
-import "fmt"
+import (
+	"fmt"
+	"image/color"
+)
 
 func (d *Device) handleOSCSequence(seq []rune) {
 	seq = trimST(seq)
@@ -14,7 +17,12 @@ func (d *Device) handleOSCSequence(seq []rune) {
 	case 0:
 		// xterm set window title
 		d.Properties[PropertyWindowTitle] = string(seq[2:])
-
+	case 10: // query default foreground color
+		fg := color.RGBAModel.Convert(d.attrDefault.Fg).(color.RGBA)
+		fmt.Fprintf(d.Output, "\x1b]10;rgb:%d/%d/%d\x1b/", fg.R, fg.G, fg.B)
+	case 11: // query default background color
+		bg := color.RGBAModel.Convert(d.attrDefault.Bg).(color.RGBA)
+		fmt.Fprintf(d.Output, "\x1b]11;rgb:%d/%d/%d\x1b/", bg.R, bg.G, bg.B)
 	default:
 		if ShowUnhandled {
 			fmt.Println("Unhandled OSC:", seqString(seq))

@@ -1,6 +1,8 @@
 package fansiterm
 
-import "image"
+import (
+	"image"
+)
 
 func (d *Device) Scroll(rowAmount int) {
 	// scrollArea Empty means scroll the whole screen--we can use more efficient algos for that
@@ -36,14 +38,10 @@ func (d *Device) setScrollRegion(start, end int) {
 	d.scrollRegion[0] = bound((start - 1), 0, d.rows-1)
 	d.scrollRegion[1] = bound((end - 1), 0, d.rows-1)
 
-	d.scrollArea.Min.Y = (d.scrollRegion[0] * d.Render.cell.Dy())
+	d.scrollArea.Min.Y = (d.scrollRegion[0] * d.Render.cell.Dy()) + d.Render.bounds.Min.Y
 	// + 1 because internally we are 0-indexed, but ANSI escape codes are 1-indexed
 	// + another 1 because we want the bottom of the nth cell, not the top
-	d.scrollArea.Max.Y = (d.scrollRegion[1] + 1) * d.Render.cell.Dy()
-
-	// honor our offset
-	d.scrollArea = d.scrollArea.Add(d.Render.bounds.Min)
-	//draw.Draw(d.Render, d.scrollArea, xform.InvertColors(d.Render), d.scrollArea.Min, draw.Src)
+	d.scrollArea.Max.Y = (d.scrollRegion[1]+1)*d.Render.cell.Dy() + d.Render.bounds.Min.Y
 
 	// if you mess up setting the scroll area, just forget the whole thing.
 	if (start == 0 && end == 0) || start >= end || d.scrollArea.Eq(d.Render.Bounds()) {

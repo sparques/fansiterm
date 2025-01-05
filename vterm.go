@@ -185,7 +185,7 @@ func New(cols, rows int, buf draw.Image) *Device {
 		d.Render.vectorScroll = func(r image.Rectangle, v image.Point) { softVectorScroll(d.Render.Image, r, v) }
 	}
 
-	if scrollable, ok := d.Render.Image.(gfx.RegionScroller); ok {
+	if scrollable, ok := d.Render.Image.(gfx.RegionScroller); ok && offset.X == 0 {
 		d.Render.regionScroll = scrollable.RegionScroll
 	} else {
 		d.Render.regionScroll = func(region image.Rectangle, pixAmt int) {

@@ -95,7 +95,7 @@ func (d *Device) updateAttr() {
 // cursorPt returns the location of the cursor as an image.Point
 // From perspective of viewing the rendered terminal, this is the top left corner of the cell the cursor is in.
 func (d *Device) cursorPt() image.Point {
-	return image.Pt(d.Render.Bounds().Min.X+d.Render.cell.Dx()*d.cursor.col, d.Render.Bounds().Min.Y+d.Render.cell.Dy()*d.cursor.row)
+	return image.Pt(d.Render.bounds.Min.X+d.Render.cell.Dx()*d.cursor.col, d.Render.Bounds().Min.Y+d.Render.cell.Dy()*d.cursor.row)
 }
 
 // RenderRune does not do *any* interpretation of escape codes or control characters like \r or \n.
