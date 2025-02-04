@@ -148,7 +148,7 @@ func New(cols, rows int, buf draw.Image) *Device {
 			bounds:        bounds,
 			AltCharSet:    altCharSet,
 			CharSet:       charSet,
-			BoldCharSet:   sweet16.Regular8x16,
+			BoldCharSet:   sweet16.Bold8x16,
 			ItalicCharSet: &tiles.Italics{Tiler: charSet},
 			cell:          cell,
 			cursorFunc:    blockRect,
@@ -352,6 +352,11 @@ func isFinal(r rune) bool {
 func (d *Device) GetReader() (rd io.Reader) {
 	rd, d.Output = io.Pipe()
 	return
+}
+
+// Size returns the size of the terminal in rows and columns.
+func (d *Device) Size() (int, int) {
+	return d.rows, d.cols
 }
 
 // Write implements io.Write and is the main way to interract with a (*fansiterm).Device. This is

@@ -18,6 +18,14 @@ type Cursor struct {
 
 	// prevPos is for saving cursor position; The indicies are col, row.
 	prevPos [2]int
+
+	altPos [2]int
+}
+
+// ToggleAltPos toggles between the main screen's position and
+// the alt screen's position.
+func (c *Cursor) ToggleAltPos() {
+	c.altPos[0], c.altPos[1], c.col, c.row = c.col, c.row, c.altPos[0], c.altPos[1]
 }
 
 // ColsRemaining returns how many columns are remaining until EOL

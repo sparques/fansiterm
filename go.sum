@@ -6,3 +6,5 @@ github.com/sparques/gfx v0.0.1 h1:W5lMbztNzddrY3iBHDTguvYoAvAquylCev4BgsEzuio=
 github.com/sparques/gfx v0.0.1/go.mod h1:CGxot+9W7jFeT8cH61YQr8KtW+8/eI1uz646yBTvEa0=
 golang.org/x/exp v0.0.0-20240409090435-93d18d7e34b8 h1:ESSUROHIBHg7USnszlcdmjBEwdMj9VUvU+OPk4yl2mc=
 golang.org/x/exp v0.0.0-20240409090435-93d18d7e34b8/go.mod h1:/lliqkxwWAhPjf5oSOIJup2XcqJaw8RGS6k3TGEc7GI=
+golang.org/x/image v0.23.0 h1:HseQ7c2OpPKTPVzNjG5fwJsOTCiiwS4QdsYi5XU6H68=
+golang.org/x/image v0.23.0/go.mod h1:wJJBTdLfCCf3tiHa1fNxpZmUI4mmoZvwMCPP0ddoNKY=

@@ -22,6 +22,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 	"unicode"
@@ -41,7 +42,7 @@ var (
 	dump     = flag.Bool("showmetrics", false, "Show font metrics and exit (doesn't generate anything).")
 	startcp  = flag.Int("start", 0, "starting codepoint")
 	endcp    = flag.Int("end", unicode.MaxRune, "ending codepoint")
-	output   = flag.String("output", "fts", "what to output; fts generates a go source file; png generates a set of pngs")
+	output   = flag.String("output", "fts", "what to output; fts generates a go source file; png generates a set of pngs; tile generates ascii tile files")
 )
 
 func loadFontFile() ([]byte, error) {
@@ -131,6 +132,31 @@ func main() {
 			draw.DrawMask(dst, dr, image.White, image.Point{}, mask, maskp, draw.Src)
 			alphaCellTileSet.Glyphs[r] = dst.Pix
 		}
+	}
+
+	if *output == "tile" {
+		for k, v := range alphaCellTileSet.Glyphs {
+			fn := fmt.Sprintf("0x%04X.tile", k)
+			fh, err := os.Create(fn)
+			if err != nil {
+				panic(err)
+			}
+			for _, row := range v {
+				fh.Write([]byte(strings.Map(func(r rune) rune {
+					switch r {
+					case '0':
+						return ' '
+					case '1':
+						return '#'
+					default:
+						return r
+					}
+				},
+					fmt.Sprintf("%08b!\n", row))))
+			}
+			fh.Close()
+		}
+		return
 	}
 
 	buf := new(bytes.Buffer)

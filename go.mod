@@ -8,4 +8,7 @@ require (
 	golang.org/x/exp v0.0.0-20240409090435-93d18d7e34b8
 )
 
-require github.com/rivo/uniseg v0.2.0 // indirect
+require (
+	github.com/rivo/uniseg v0.2.0 // indirect
+	golang.org/x/image v0.23.0 // indirect
+)

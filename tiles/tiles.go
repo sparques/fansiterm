@@ -4,7 +4,6 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
-	_ "image/png"
 	"io"
 	"maps"
 	"math"

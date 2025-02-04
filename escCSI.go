@@ -293,6 +293,7 @@ func (d *Device) handleCSISequence(seq []rune) {
 				return
 			}
 			if set {
+				// TODO: also save cursor position somewhere
 				// use AltScreen; just save the buffer
 				d.saveBuf = image.NewRGBA(d.Render.bounds)
 				draw.Draw(d.saveBuf, d.Render.bounds, d.Render, d.Render.bounds.Min, draw.Src)
@@ -301,6 +302,7 @@ func (d *Device) handleCSISequence(seq []rune) {
 				// stop using alt screen, show the saved buffer
 				draw.Draw(d.Render, d.Render.bounds, d.saveBuf, d.Render.bounds.Min, draw.Src)
 			}
+			d.cursor.ToggleAltPos()
 		case 2004: //bracketed paste enable disable
 			// given fansiterm's intended use case, this is going unimplemented.
 		default:
@@ -330,3 +332,5 @@ func (d *Device) handleCSISequence(seq []rune) {
 		}
 	} // switch seq[len(seq)-1]
 }
+
+var cur [2]int

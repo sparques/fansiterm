@@ -4,7 +4,6 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
-	_ "image/png"
 
 	"github.com/mattn/go-runewidth"
 	"github.com/sparques/fansiterm/tiles"
