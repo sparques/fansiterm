@@ -1,3 +1,7 @@
+// Package fansiterm provides a fully featured, graphics-capable virtual terminal implementation
+// designed for environments with minimal or no operating support.
+// Originally implemented to run on microcontrollers and works
+// well with TinyGo.
 package fansiterm
 
 import (
@@ -16,8 +20,18 @@ import (
 	"github.com/sparques/gfx"
 )
 
-// Device implements a virtual terminal. It supports being io.Write()n to. It handles the cursor and processing of
-// sequences.
+/*
+var (
+	// OptionMonochrome if true disables color pallete initialization. If using a monochrome
+	// display, this saves a fair amount of memory. Must be set before calling any of the
+	// NewDevice functions. Default is false.
+	OptionMonochrome bool = false
+)
+*/
+
+// Device implements a virtual terminal. It satisfies the io.Writer interface
+// and supports ANSI escape sequences, custom fonts, raster graphics, and more.
+// It is thread-safe and optimized for embedded or minimal environments.
 //
 //go:export
 type Device struct {
@@ -25,7 +39,7 @@ type Device struct {
 	// display a bell character
 	BellFunc func()
 
-	// Config species the runtime configurable features of fansiterm.
+	// Config specifies the runtime configurable features of fansiterm.
 	Config Config
 
 	// cols and rows specify the size in characters of the terminal.
@@ -70,18 +84,18 @@ type Device struct {
 	sync.Mutex
 }
 
+// Config defines runtime settings for a Device.
 type Config struct {
-	TabSize             int
-	StrikethroughHeight int
-	CursorStyle         int
-	BoldColors          bool
-	// Enable the alternate screen buffer. Probably do not have enough
-	// RAM on MCUs to use this option. Default is false.
-	AltScreen                bool
-	Wraparound               bool
-	CursorKeyApplicationMode bool
+	TabSize                  int  // Number of spaces per tab.
+	StrikethroughHeight      int  // Pixel height offset for strike-through.
+	CursorStyle              int  // Default cursor style.
+	BoldColors               bool // Whether bold colors are enabled.
+	AltScreen                bool // Enable alternate screen buffer (expensive on MCUs).
+	Wraparound               bool // Whether text wraps at the screen edge.
+	CursorKeyApplicationMode bool // Enable application mode for cursor keys.
 }
 
+// Attr defines the attributes applied to rendered text.
 type Attr struct {
 	Bold            bool
 	Underline       bool
@@ -95,18 +109,15 @@ type Attr struct {
 	Bg              Color
 }
 
-// ConfigDefault is used to initialize (*Device).Config. These are the config
-// values fansiterm uses when initializing a terminal.
+// ConfigDefault provides the default configuration values for a Device.
 var ConfigDefault = Config{
 	TabSize:             8,
 	StrikethroughHeight: 7,
 	BoldColors:          true,
 }
 
-// New returns an initialized *Device. If buf is nil, an internal buffer is used. Otherwise
-// if you specify a hardware backed draw.Image, writes to Device will immediately be written
-// to the backing hardware--whether this is instaneous or buffered is up to the device and the
-// device driver.
+// New initializes a new terminal device with the specified dimensions and optional draw.Image buffer.
+// If buf is nil, a default in-memory RGBA buffer is allocated. The terminal's character size is fixed.
 func New(cols, rows int, buf draw.Image) *Device {
 	// Eventually I'd like to support different fonts and dynamic resizing
 	// I'm trying to get to an MVP first.
@@ -120,7 +131,6 @@ func New(cols, rows int, buf draw.Image) *Device {
 	if buf == nil {
 		buf = image.NewRGBA(image.Rect(0, 0, cols*cell.Max.X, rows*cell.Max.Y))
 	}
-
 	// yoink the color model to init our colorSystem
 	colorSystem := NewColorSystem(buf.ColorModel())
 
@@ -237,13 +247,7 @@ func New(cols, rows int, buf draw.Image) *Device {
 	return d
 }
 
-// NewAtResolution is like New, but rather than specifying the columns and rows,
-// you specify the desired resolution. The maximum rows and cols will be determined
-// automatically and the terminal rendered in the center.
-// Fansiterm will only ever update / work on the rectangle it has claimed.
-// If you want to use an existing backing buffer and position that, use NewWithBuf and
-// use xform.SubImage() to locate the terminal.
-
+// NewAtResolution returns a new Device sized to fit a resolution (x,y), centering the terminal.
 func NewAtResolution(x, y int, buf draw.Image) *Device {
 	// TODO: This is a crappy way of figuring out what font we're using. Do something else.
 	d := New(1, 1, nil)
