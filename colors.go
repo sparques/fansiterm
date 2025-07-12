@@ -5,60 +5,69 @@ import (
 	"image/color"
 )
 
-// Color both implements color.Color and image.Image.
-// image.Image needs a color.Model, so for convenience's
-// sake, Color also implements color.Model so it can
-// simply have ColorModel() return itself.
-// The main purpose of Color is so there is no need to
-// instantiate an image.Unform everytime we need to
-// draw something in a particular color.
+// Color wraps color.Color and implements image.Image and color.Model.
+//
+// Its main purpose is to avoid repeatedly instantiating image.Uniform
+// when drawing with solid colors. This allows Color to be used directly
+// anywhere color.Color, image.Image, or color.Model are expected
 type Color struct {
 	color.Color
 }
 
-// NewOpaqueColor returns a Color that has a fully opaque alpha value.
+// NewOpaqueColor returns a Color with full opacity (alpha = 255).
 func NewOpaqueColor(r, g, b uint8) Color {
 	return Color{color.RGBA{r, g, b, 255}}
 }
 
-// NewColor returns a new Color.
+// NewColor returns a Color with the specified RGBA values.
 func NewColor(r, g, b, a uint8) Color {
 	return Color{color.RGBA{r, g, b, a}}
 }
 
-// At implements image.Image
+// At implements image.Image by returning the embedded color value.
 func (c Color) At(int, int) color.Color {
 	return c.Color
 }
 
-// Bounds implements image.Image
+// Bounds implements image.Image.
+// It returns an extremely large bounding rectangle to satisfy
+// the image.Image interface when Color is used as an image.
 func (c Color) Bounds() image.Rectangle {
 	return image.Rectangle{image.Point{-1e9, -1e9}, image.Point{1e9, 1e9}}
 }
 
-// ColorModel implements image.Image
+// ColorModel implements image.Image and color.Model.
+// Returns itself to satisfy both interfaces.
 func (c Color) ColorModel() color.Model {
 	return c
 }
 
+// Convert implements color.Model.
+// Since this Color is already assumed to be in the correct native format,
+// Convert is a stub and returns the input as-is.
 func (c Color) Convert(cin color.Color) color.Color {
 	return cin
 }
 
-// the tinygo.org/x/drivers/pixel package has a somewhat incompatible
-// color interface with the color.Color interface. This type definition
-// and it's associated function allows a pixel.Color's RGBA method to be
-// cast so that it implements the color.Color interface.
-// Example:
-// pixelColor := pixel.NewColor[pixel.RGB888](127,127,127)
-// drawImage.Set(xPos,yPos, Colorizer(pixelColor.RGBA))
+// Colorizer is an adapter that allows a pixel.Color's RGBA method
+// to satisfy the color.Color interface used by the Go image packages.
+//
+// Example usage:
+//
+//	pixelColor := pixel.NewColor[pixel.RGB888](127,127,127)
+//	drawImage.Set(x, y, Colorizer(pixelColor.RGBA))
 type Colorizer func() color.RGBA
 
+// RGBA implements color.Color by invoking the wrapped function.
 func (c Colorizer) RGBA() (r, g, b, a uint32) {
 	v := c()
 	return uint32(v.R), uint32(v.G), uint32(v.B), uint32(v.A)
 }
 
+// colorSystem manages a working palette and color model for a device.
+//
+// It provides ANSI and 256-color palettes and allows color conversions
+// to be cached or reused in native format.
 type colorSystem struct {
 	color.Model
 	PaletteANSI  [16]Color
@@ -66,19 +75,21 @@ type colorSystem struct {
 	currentColor Color
 }
 
+// Color sets the current working color after converting to the native format.
 func (cs *colorSystem) Color(c color.Color) *colorSystem {
 	cs.currentColor = cs.Convert(c).(Color)
 	return cs
 }
 
+// RGBA returns the current working color as 32-bit RGBA values.
 func (cs *colorSystem) RGBA() (r, g, b, a uint32) {
 	return cs.currentColor.RGBA()
 }
 
-// NewColorSystem instantiates and initializes a *colorSystem.
-// Fansiterm (*Device) uses colorSystem as its palette as well
-// as using it to ensure our working colors are already in
-// the native format for the backing buffer.
+// NewColorSystem creates a new colorSystem with ANSI and xterm 256-color palettes.
+//
+// The provided color.Model is used for conversions, allowing consistent native
+// color formatting for terminal buffers or image data.
 func NewColorSystem(m color.Model) *colorSystem {
 	cs := &colorSystem{Model: m}
 
@@ -363,6 +374,7 @@ func NewColorSystem(m color.Model) *colorSystem {
 	return cs
 }
 
+// NewRGB creates a fully opaque Color using the system's color.Model.
 func (cs *colorSystem) NewRGB(r, g, b uint8) Color {
 	return Color{cs.Convert(color.RGBA{r, g, b, 255})}
 }
