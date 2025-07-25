@@ -8,6 +8,8 @@ import (
 	"image/draw"
 	_ "image/jpeg"
 	"strings"
+
+	"github.com/sparques/fansiterm/tiles"
 )
 
 func (d *Device) handleFansiSequence(seq []rune) {
@@ -342,8 +344,22 @@ func (d *Device) handleFansiSequence(seq []rune) {
 				d.Render.Set(-yp+x, -xp+y, c)
 			}
 		*/
+	case 's': // s for save; save an image and map it to a unicode code point
+		img, err := DecodeImageData(params[1])
+		if err != nil {
+			return
+		}
 
-	case 'S': // S for Set
+		if d.Render.User == nil {
+			d.Render.User = tiles.NewFullColorTileSet()
+			d.Render.AltCharSet = tiles.NewMultiTileSet(d.Render.User, d.Render.AltCharSet)
+		}
+
+		// TODO: convert to native pixel format using NewImage
+
+		d.Render.User[params[0][0]] = img
+
+	case 'S': // S for Set; set a single pixel
 		var (
 			pt image.Point
 			c  color.RGBA
