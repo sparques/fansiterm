@@ -378,3 +378,34 @@ func NewColorSystem(m color.Model) *colorSystem {
 func (cs *colorSystem) NewRGB(r, g, b uint8) Color {
 	return Color{cs.Convert(color.RGBA{r, g, b, 255})}
 }
+
+//func (cs *colorSystem) NewImage(r image.Rectangle)
+
+type Image[T color.Color] struct {
+	pix   []T
+	rect  image.Rectangle
+	model color.Model
+}
+
+func NewImage[T color.Color](model color.Model, r image.Rectangle) *Image[T] {
+	r = r.Canon()
+	pix := make([]T, r.Dy()*r.Dx())
+	return &Image[T]{
+		pix:   pix,
+		rect:  r,
+		model: model,
+	}
+}
+
+func (img *Image[T]) Bounds() image.Rectangle {
+	return img.rect
+}
+
+func (img *Image[T]) At(x, y int) color.Color {
+	return img.pix[y*img.rect.Dx()+x]
+}
+
+func (img *Image[T]) Set(x, y int, c color.Color) {
+	nc := img.model.Convert(c).(T)
+	img.pix[y*img.rect.Dx()+x] = nc
+}

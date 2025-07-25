@@ -28,7 +28,7 @@ func (c *Cursor) ToggleAltPos() {
 	c.altPos[0], c.altPos[1], c.col, c.row = c.col, c.row, c.altPos[0], c.altPos[1]
 }
 
-// ColsRemaining returns how many columns are remaining until EOL
+// ColsRemaining returns how many columns are remaining until EO
 func (c *Cursor) ColsRemaining() int {
 	return *c.cols - c.col
 }

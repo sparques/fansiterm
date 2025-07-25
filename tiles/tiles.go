@@ -8,6 +8,7 @@ import (
 	"maps"
 	"math"
 	"os"
+	"slices"
 )
 
 var EmptyTile = image.NewAlpha(image.Rect(0, 0, 8, 16))
@@ -36,7 +37,7 @@ func NewFontTileSet() *FontTileSet {
 	}
 }
 
-// Merge copiess code points / glyphs into fts, displacing any overlapping code points.
+// Merge copies code points / glyphs into fts, displacing any overlapping code points.
 func (fts *FontTileSet) Merge(src *FontTileSet) {
 	maps.Copy(fts.Glyphs, src.Glyphs)
 }
@@ -106,7 +107,8 @@ func (fts *FontTileSet) DrawTile(r rune, dst draw.Image, pt image.Point, fg colo
 // contain the desired tile, EmptyTile is returned. Note this requires the Tilers' GetRune
 // method to return nil if the tile is not found.
 type MultiTileSet struct {
-	sets []Tiler
+	sets    []Tiler
+	reverse bool
 }
 
 func NewMultiTileSet(sets ...Tiler) *MultiTileSet {
@@ -137,6 +139,23 @@ func (mts *MultiTileSet) DrawTile(r rune, dst draw.Image, pt image.Point, fg col
 
 	// No tile found? Fallback to EmptyTile
 	drawTile(dst, pt, EmptyTile, fg, bg)
+}
+
+func (mts *MultiTileSet) Prepend(t Tiler) {
+	mts.sets = append([]Tiler{t}, mts.sets...)
+}
+
+func (mts *MultiTileSet) Append(t Tiler) {
+	mts.sets = append(mts.sets, t)
+}
+
+func (mts *MultiTileSet) Reverse(r bool) {
+	// if we're already set, don't do anything
+	if mts.reverse == r {
+		return
+	}
+	slices.Reverse(mts.sets)
+	mts.reverse = r
 }
 
 type BitColor bool
@@ -343,11 +362,11 @@ func NewTileSet() TileSet {
 	return make(TileSet)
 }
 
-func (ts TileSet) GetTile(r rune) image.Image {
+func (ts TileSet) GetTile(r rune) (image.Image, bool) {
 	if _, ok := ts[r]; !ok {
-		return nil
+		return nil, false
 	}
-	return ts[r]
+	return ts[r], true
 }
 
 func (ts TileSet) LoadTileFromFile(r rune, file string) {
@@ -379,6 +398,17 @@ func (ts TileSet) DrawTile(r rune, dst draw.Image, pt image.Point, fg color.Colo
 }
 
 type FullColorTileSet TileSet
+
+func NewFullColorTileSet() FullColorTileSet {
+	return make(FullColorTileSet)
+}
+
+func (fc FullColorTileSet) GetTile(r rune) (image.Image, bool) {
+	if _, ok := fc[r]; !ok {
+		return nil, false
+	}
+	return fc[r], true
+}
 
 func (fc FullColorTileSet) DrawTile(r rune, dst draw.Image, pt image.Point, fg color.Color, bg color.Color) {
 	src, ok := fc[r]

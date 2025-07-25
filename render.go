@@ -40,6 +40,7 @@ type Render struct {
 	AltCharSet    tiles.Tiler
 	BoldCharSet   tiles.Tiler
 	ItalicCharSet tiles.Tiler
+	User          tiles.FullColorTileSet
 	cell          image.Rectangle
 	cursorFunc    cursorRectFunc
 	// DisplayFunc is called after a write to the terminal. This is for some displays that require a flush / blit / sync call.
@@ -82,10 +83,9 @@ func (d *Device) updateAttr() {
 		case d.attr.Italic:
 			ts = tiles.NewMultiTileSet(d.Render.AltCharSet, d.Render.ItalicCharSet)
 		default:
-			ts = d.Render.AltCharSet
+			ts = tiles.NewMultiTileSet(d.Render.User, d.Render.AltCharSet)
 		}
 		d.Render.active.tileSet = &ts
-	default:
 	}
 
 	return

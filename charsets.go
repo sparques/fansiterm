@@ -4,7 +4,7 @@ import "github.com/sparques/fansiterm/tiles"
 
 // back in the day, we had alternate character sets that we could
 // switch between using escape sequences. Nowadays, unicode lets
-// use tuck all those code points into a single font.
+// us tuck all those code points into a single font.
 // altToUnicode maps the alternate charset (G1) to the unicode
 // codepoint.
 //

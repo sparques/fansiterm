@@ -321,8 +321,8 @@ func (d *Device) VisualBell() {
 // WriteAt works like calling the save cursor position escape sequence, then
 // the absolute set cursor position escape sequence, writing to the terminal,
 // and then finally restoring cursor position. The offset is just the i'th
-// character on screen. Negative offset values are set to 0, values larger than
-// d.rows * d.cols are set to d.rows*d.cols-1.
+// character on screen. Offset values are clamped: Negative offset values are
+// set to 0, values larger than d.rows * d.cols are set to d.rows*d.cols-1.
 func (d *Device) WriteAt(p []byte, off int64) (n int, err error) {
 	col, row := d.cursor.col, d.cursor.row
 	defer func() {
