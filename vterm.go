@@ -131,6 +131,7 @@ func New(cols, rows int, buf draw.Image) *Device {
 	if buf == nil {
 		buf = image.NewRGBA(image.Rect(0, 0, cols*cell.Max.X, rows*cell.Max.Y))
 	}
+
 	// yoink the color model to init our colorSystem
 	colorSystem := NewColorSystem(buf.ColorModel())
 
@@ -305,6 +306,11 @@ func (d *Device) SetCursorStyle(style cursorRectFunc) {
 	d.hideCursor()
 	d.Render.cursorFunc = style
 	d.showCursor()
+}
+
+func (d *Device) BlinkCursor() {
+	d.toggleCursor()
+	d.Render.DisplayFunc()
 }
 
 func (d *Device) SetAttrDefault(attr Attr) {
