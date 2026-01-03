@@ -124,38 +124,8 @@ func (d *Device) handleCSISequence(seq []rune) {
 				d.attr = d.attrDefault
 			case 1:
 				d.attr.Bold = true
-				if d.Config.BoldColors {
-					// if BoldColors is enabled, setting bold bumps
-					// the fg color
-					for i := range 8 {
-						if d.attr.Fg == d.Render.colorSystem.PaletteANSI[i] {
-							d.attr.Fg = d.Render.colorSystem.PaletteANSI[i+8]
-							break
-						}
-					}
-					// don't modify color if we're not using one of the
-					// vga colors. There is a corner case of someone using
-					// a 24-bit or 256-color color, fixible by using a flag
-					// indicating if we've set a ANSI color or not, but...
-					// meh.
-				}
 			case 22:
 				d.attr.Bold = false
-				if d.Config.BoldColors {
-					// if BoldColors is enabled, unsetting bold drops
-					// the fg color
-					for i := range 8 {
-						if d.attr.Fg == d.Render.colorSystem.PaletteANSI[i+8] {
-							d.attr.Fg = d.Render.colorSystem.PaletteANSI[i]
-							break
-						}
-					}
-					// don't modify color if we're not using one of the
-					// vga colors. There is a corner case of someone using
-					// a 24-bit or 256-color color, fixible by using a flag
-					// indicating if we've set a ANSI color or not, but...
-					// meh.
-				}
 			case 3:
 				d.attr.Italic = true
 			case 23:
@@ -188,51 +158,16 @@ func (d *Device) handleCSISequence(seq []rune) {
 			// 	d.Render.active.tileSet = d.Render.G1
 			case 29:
 				d.attr.Strike = false
-			case 30, 31, 32, 33, 34, 35, 36, 37:
-				if d.Config.BoldColors && d.attr.Bold {
-					d.attr.Fg = d.Render.colorSystem.PaletteANSI[args[i]-30+8]
-				} else {
-					d.attr.Fg = d.Render.colorSystem.PaletteANSI[args[i]-30]
-				}
+			case 30, 31, 32, 33, 34, 35, 36, 37: // NOP
 			case 39:
 				d.attr.Fg = d.attrDefault.Fg
-			case 40, 41, 42, 43, 44, 45, 46, 47:
-				d.attr.Bg = d.Render.colorSystem.PaletteANSI[args[i]-40]
+			case 40, 41, 42, 43, 44, 45, 46, 47: // NOP
 			case 49:
 				d.attr.Bg = d.attrDefault.Bg
-			case 90, 91, 92, 93, 94, 95, 96, 97:
-				d.attr.Fg = d.Render.colorSystem.PaletteANSI[args[i]-90+8]
-			case 100, 101, 102, 103, 104, 105, 106, 107:
-				d.attr.Bg = d.Render.colorSystem.PaletteANSI[args[i]-100+8]
+			case 90, 91, 92, 93, 94, 95, 96, 97: // NOP
+			case 100, 101, 102, 103, 104, 105, 106, 107: // NOP
 			// 24bit True Color and 256-Color support support
-			case 38, 48:
-				if i+1 >= len(args) {
-					continue
-				}
-				if args[i+1] == 5 {
-					// prevent going out of range
-					args[i] = args[i] % 256
-					if args[i] == 38 {
-						d.attr.Fg = d.Render.colorSystem.Palette256[args[i+2]]
-					} else {
-						d.attr.Bg = d.Render.colorSystem.Palette256[args[i+2]]
-					}
-					i += 2
-					continue
-				}
-				if args[i+1] != 2 {
-					continue
-				}
-				i += 2
-				// can proceed
-				var r, g, b uint8
-				r, g, b = getRGB(args[i:])
-				i += 2
-				if args[i-4] == 38 {
-					d.attr.Fg = d.Render.colorSystem.NewRGB(r, g, b)
-				} else {
-					d.attr.Bg = d.Render.colorSystem.NewRGB(r, g, b)
-				}
+			case 38, 48: // NOP
 			default:
 				if ShowUnhandled {
 					fmt.Println("Unhandled SGR:", args[i], "(part of", seqString(seq), ")")

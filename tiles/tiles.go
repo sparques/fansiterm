@@ -162,6 +162,7 @@ type BitColor bool
 
 func (bc BitColor) RGBA() (r, g, b, a uint32) {
 	if bc {
+		r, g, b = m, m, m
 		a = m
 	}
 	return
@@ -227,6 +228,14 @@ type Alpha1 struct {
 	Rect   image.Rectangle
 }
 
+func NewAlpha1(r image.Rectangle) *Alpha1 {
+	return &Alpha1{
+		Pix:    make([]uint8, r.Dx()*r.Dy()/8),
+		Stride: r.Dx(),
+		Rect:   r,
+	}
+}
+
 func (a *Alpha1) ColorModel() color.Model {
 	return BitColorModel
 }
@@ -246,6 +255,78 @@ func (a *Alpha1) Set(x, y int, c color.Color) {
 		a.Pix[y*a.Stride+x/8] |= 0x80 >> (x % 8)
 	} else {
 		a.Pix[y*a.Stride+x/8] &= ^(0x80 >> (x % 8))
+	}
+}
+
+// PixIdx returns the index and bit-offset for the pixel at
+// point p.
+func (a *Alpha1) PixIdx(p image.Point) (idx int, offset int) {
+	return p.Y*a.Stride + p.X/8, 0x80 >> (p.X % 8)
+}
+
+func (a *Alpha1) Fill(rect image.Rectangle, c color.Color) {
+	r := rect.Intersect(a.Rect)
+	if r.Empty() {
+		return
+	}
+
+	fillOn := bool(bitColorModel(c).(BitColor))
+
+	minX, minY := r.Min.X, r.Min.Y
+	maxX, maxY := r.Max.X, r.Max.Y
+
+	startByte := minX >> 3
+	endByte := (maxX - 1) >> 3 // inclusive
+
+	startBit := minX & 7
+	endBit := (maxX - 1) & 7
+
+	startMask := byte(0xFF >> startBit)
+	endMask := byte(0xFF << (7 - endBit))
+
+	if startByte == endByte {
+		mask := startMask & endMask
+		for y := minY; y < maxY; y++ {
+			i := (y-a.Rect.Min.Y)*a.Stride + startByte
+			if fillOn {
+				a.Pix[i] |= mask
+			} else {
+				a.Pix[i] &^= mask
+			}
+		}
+		return
+	}
+
+	var full byte
+	if fillOn {
+		full = 0xFF
+	} else {
+		full = 0x00
+	}
+
+	for y := minY; y < maxY; y++ {
+		row := (y - a.Rect.Min.Y) * a.Stride
+
+		// first partial byte
+		i0 := row + startByte
+		if fillOn {
+			a.Pix[i0] |= startMask
+		} else {
+			a.Pix[i0] &^= startMask
+		}
+
+		// middle full bytes
+		for i := i0 + 1; i < row+endByte; i++ {
+			a.Pix[i] = full
+		}
+
+		// last partial byte
+		i1 := row + endByte
+		if fillOn {
+			a.Pix[i1] |= endMask
+		} else {
+			a.Pix[i1] &^= endMask
+		}
 	}
 }
 
@@ -521,7 +602,7 @@ func italicize(img image.Image) imageTransform {
 			default:
 				return min(x+1, 7), y
 			}
-			return x, y
+			// return x, y
 		},
 	}
 }

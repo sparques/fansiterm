@@ -133,7 +133,8 @@ func (d *Device) handleFansiSequence(seq []rune) {
 		if n == 4 {
 			c = d.Render.active.fg
 		} else {
-			c = d.Render.colorSystem.Convert(color.RGBA{uint8(r), uint8(g), uint8(b), 255})
+			// c = d.Render.colorSystem.Convert(color.RGBA{uint8(r), uint8(g), uint8(b), 255})
+			c = Color{color.RGBA{uint8(r), uint8(g), uint8(b), 255}}
 		}
 
 		pt1, pt2 = pt1.Add(d.Render.bounds.Min), pt2.Add(d.Render.bounds.Min)
@@ -201,9 +202,9 @@ func (d *Device) handleFansiSequence(seq []rune) {
 			if id < 0 || id > 15 {
 				return
 			}
-			d.Render.colorSystem.PaletteANSI[id] = d.Render.colorSystem.NewRGB(c.R, c.G, c.B)
+			// nop
 		case 'p': // p for 256-palette
-			d.Render.colorSystem.Palette256[id] = d.Render.colorSystem.NewRGB(c.R, c.G, c.B)
+			//nop
 		default:
 			return
 		}
@@ -226,7 +227,7 @@ func (d *Device) handleFansiSequence(seq []rune) {
 		case 3:
 			nc = d.Render.active.fg
 		case 6:
-			nc = d.Render.colorSystem.Convert(c)
+			nc = Color{c}
 		default:
 			return
 		}
@@ -262,7 +263,7 @@ func (d *Device) handleFansiSequence(seq []rune) {
 		case 4:
 			nc = d.Render.active.fg
 		case 7:
-			nc = d.Render.colorSystem.Convert(c)
+			nc = Color{c}
 		default:
 			return
 		}
@@ -295,7 +296,7 @@ func (d *Device) handleFansiSequence(seq []rune) {
 		case 3:
 			nc = d.Render.active.fg
 		case 6:
-			nc = d.Render.colorSystem.Convert(c)
+			nc = Color{c}
 		default:
 			return
 		}

@@ -25,9 +25,9 @@ var unicode = runewidth.NewCondition()
 
 type Render struct {
 	draw.Image
-	colorSystem *colorSystem
-	bounds      image.Rectangle
-	active      struct {
+	//colorSystem *colorSystem
+	bounds image.Rectangle
+	active struct {
 		tileSet *tiles.Tiler
 		fg      Color
 		bg      Color
@@ -103,7 +103,7 @@ func (d *Device) cursorPt() image.Point {
 func (d *Device) RenderRune(sym rune) (width int) {
 	width = 1
 	if sym > 255 {
-		// do runewidth check and adjusted width as necessary
+		// do runewidth check and adjust width as necessary
 		width = unicode.RuneWidth(sym)
 	}
 

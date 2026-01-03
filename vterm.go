@@ -133,7 +133,7 @@ func New(cols, rows int, buf draw.Image) *Device {
 	}
 
 	// yoink the color model to init our colorSystem
-	colorSystem := NewColorSystem(buf.ColorModel())
+	//colorSystem := NewColorSystem(buf.ColorModel())
 
 	// figure out our actual terminal bounds.
 	bounds := image.Rect(0, 0, cell.Dx()*cols, cell.Dy()*rows).Add(buf.Bounds().Min)
@@ -154,8 +154,8 @@ func New(cols, rows int, buf draw.Image) *Device {
 		cols: cols,
 		rows: rows,
 		Render: Render{
-			Image:         buf,
-			colorSystem:   colorSystem,
+			Image: buf,
+			// colorSystem:   colorSystem,
 			bounds:        bounds,
 			AltCharSet:    altCharSet,
 			CharSet:       charSet,
@@ -178,8 +178,10 @@ func New(cols, rows int, buf draw.Image) *Device {
 	d.cursor.cols = &d.cols
 
 	// Establish defaults
-	d.attrDefault.Fg = colorSystem.PaletteANSI[7]
-	d.attrDefault.Bg = colorSystem.PaletteANSI[0]
+	// d.attrDefault.Fg = colorSystem.PaletteANSI[7]
+	// d.attrDefault.Bg = colorSystem.PaletteANSI[0]
+	d.attrDefault.Fg = Color{tiles.BitColor(true)}
+	d.attrDefault.Bg = Color{tiles.BitColor(false)}
 
 	// use hardware accelerated functions where possible
 	// VectorScroll is the most flexible and least performant, even if implemented in hardware.
@@ -376,11 +378,6 @@ func (d *Device) Size() (int, int) {
 // Certain broken escape sequence can potentially block forever.
 func (d *Device) Write(data []byte) (n int, err error) {
 	d.Lock()
-	defer d.Unlock()
-
-	if d.Render.DisplayFunc != nil {
-		defer d.Render.DisplayFunc()
-	}
 
 	runes := bytes.Runes(data)
 
@@ -388,14 +385,12 @@ func (d *Device) Write(data []byte) (n int, err error) {
 	if d.cursor.visible {
 		d.toggleCursor()
 	}
-	defer d.showCursor()
 
 	if len(d.inputBuf) != 0 {
 		runes = append(d.inputBuf, runes...)
 		d.inputBuf = []rune{}
 	}
 
-	// var endIdx int
 	for i := 0; i < len(runes); i++ {
 		switch runes[i] {
 		case '\a': // bell
@@ -465,5 +460,14 @@ func (d *Device) Write(data []byte) (n int, err error) {
 		}
 	}
 
+	// Re-paint cursor if needed
+	d.showCursor()
+
+	// TinyGo struggles with defers so this has been moved here.
+	if d.Render.DisplayFunc != nil {
+		d.Render.DisplayFunc()
+	}
+
+	d.Unlock()
 	return len(data), nil
 }
