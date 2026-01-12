@@ -20,6 +20,10 @@ func (d *Device) handleFansiSequence(seq []rune) {
 	}
 	params := splitParams(seq[1:])
 	switch seq[0] {
+	case 'a': // a like \a for bel
+		if d.BellFunc != nil {
+			d.BellFunc(strings.TrimPrefix(string(seq), "a"))
+		}
 	case 'B': // B for Blit
 		// ESC/B<pixdata>ESC\
 		// Display image defined by pixdata at cursor location; no scalling is done
@@ -133,7 +137,7 @@ func (d *Device) handleFansiSequence(seq []rune) {
 		if n == 4 {
 			c = d.Render.active.fg
 		} else {
-			c = d.Render.colorSystem.Convert(color.RGBA{uint8(r), uint8(g), uint8(b), 255})
+			c = NewOpaqueColor(uint8(r), uint8(g), uint8(b))
 		}
 
 		pt1, pt2 = pt1.Add(d.Render.bounds.Min), pt2.Add(d.Render.bounds.Min)
@@ -201,9 +205,9 @@ func (d *Device) handleFansiSequence(seq []rune) {
 			if id < 0 || id > 15 {
 				return
 			}
-			d.Render.colorSystem.PaletteANSI[id] = d.Render.colorSystem.NewRGB(c.R, c.G, c.B)
+			// nop
 		case 'p': // p for 256-palette
-			d.Render.colorSystem.Palette256[id] = d.Render.colorSystem.NewRGB(c.R, c.G, c.B)
+			//nop
 		default:
 			return
 		}
@@ -212,7 +216,7 @@ func (d *Device) handleFansiSequence(seq []rune) {
 			x, y, r int
 			rect    image.Rectangle
 			c       color.RGBA
-			nc      color.Color
+			nc      Color
 			n       int
 		)
 		c.A = 255
@@ -226,7 +230,7 @@ func (d *Device) handleFansiSequence(seq []rune) {
 		case 3:
 			nc = d.Render.active.fg
 		case 6:
-			nc = d.Render.colorSystem.Convert(c)
+			nc = NewColorFromRGBA(c)
 		default:
 			return
 		}
@@ -249,7 +253,7 @@ func (d *Device) handleFansiSequence(seq []rune) {
 		var (
 			rect image.Rectangle
 			c    color.RGBA
-			nc   color.Color
+			nc   Color
 		)
 		c.A = 255
 
@@ -262,7 +266,7 @@ func (d *Device) handleFansiSequence(seq []rune) {
 		case 4:
 			nc = d.Render.active.fg
 		case 7:
-			nc = d.Render.colorSystem.Convert(c)
+			nc = NewColorFromRGBA(c)
 		default:
 			return
 		}
@@ -281,7 +285,7 @@ func (d *Device) handleFansiSequence(seq []rune) {
 		var (
 			x, y, r int
 			c       color.RGBA
-			nc      color.Color
+			nc      Color
 			n       int
 		)
 		c.A = 255
@@ -295,7 +299,7 @@ func (d *Device) handleFansiSequence(seq []rune) {
 		case 3:
 			nc = d.Render.active.fg
 		case 6:
-			nc = d.Render.colorSystem.Convert(c)
+			nc = NewColorFromRGBA(c)
 		default:
 			return
 		}

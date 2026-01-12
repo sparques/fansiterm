@@ -25,9 +25,8 @@ var unicode = runewidth.NewCondition()
 
 type Render struct {
 	draw.Image
-	colorSystem *colorSystem
-	bounds      image.Rectangle
-	active      struct {
+	bounds image.Rectangle
+	active struct {
 		tileSet *tiles.Tiler
 		fg      Color
 		bg      Color

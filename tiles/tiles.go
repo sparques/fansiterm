@@ -158,53 +158,17 @@ func (mts *MultiTileSet) Reverse(r bool) {
 	mts.reverse = r
 }
 
-type BitColor bool
-
-func (bc BitColor) RGBA() (r, g, b, a uint32) {
-	if bc {
-		a = m
-	}
-	return
-}
-
-var BitColorModel = color.ModelFunc(bitColorModel)
-
-func bitColorModel(c color.Color) color.Color {
-	if b, ok := c.(BitColor); ok {
-		return b
-	}
-	_, _, _, a := c.RGBA()
-	if a > 0xFF*0x101/2 {
-		return BitColor(true)
-	}
-	return BitColor(false)
-}
-
-func bitColorModel2(c color.Color) color.Color {
-	if b, ok := c.(BitColor); ok {
-		return b
-	}
-
-	r, g, b, _ := c.RGBA()
-	m := max(r, g, b)
-	if m > 255*0x101/2 {
-		return BitColor(true)
-	} else {
-		return BitColor(false)
-	}
-}
-
 // AlphaCell is a 1-bit-depth image.Image that is always 8x16
 type AlphaCell struct {
 	Pix [16]uint8
 }
 
 func (ac *AlphaCell) At(x, y int) color.Color {
-	return BitColor((ac.Pix[y]<<x)&0x80 == 0x80)
+	return BitAlpha((ac.Pix[y]<<x)&0x80 == 0x80)
 }
 
 func (ac *AlphaCell) Set(x, y int, c color.Color) {
-	native := bitColorModel(c).(BitColor)
+	native := bitAlphaModel(c).(BitAlpha)
 	if native {
 		ac.Pix[y] |= 0x80 >> x
 	} else {
@@ -217,36 +181,7 @@ func (ac *AlphaCell) Bounds() image.Rectangle {
 }
 
 func (ac *AlphaCell) ColorModel() color.Model {
-	return BitColorModel
-}
-
-// Alpha1 is a single bit-depth image.Image.
-type Alpha1 struct {
-	Pix    []uint8
-	Stride int
-	Rect   image.Rectangle
-}
-
-func (a *Alpha1) ColorModel() color.Model {
-	return BitColorModel
-}
-
-func (a *Alpha1) Bounds() image.Rectangle {
-	return a.Rect
-}
-
-func (a *Alpha1) At(x, y int) (c color.Color) {
-	return BitColor((a.Pix[y*a.Stride+x/8]<<(x%8))&0x80 == 0x80)
-}
-
-func (a *Alpha1) Set(x, y int, c color.Color) {
-	native := bitColorModel(c).(BitColor)
-
-	if native {
-		a.Pix[y*a.Stride+x/8] |= 0x80 >> (x % 8)
-	} else {
-		a.Pix[y*a.Stride+x/8] &= ^(0x80 >> (x % 8))
-	}
+	return BitAlphaModel
 }
 
 type AlphaCellTileSet struct {
@@ -521,7 +456,7 @@ func italicize(img image.Image) imageTransform {
 			default:
 				return min(x+1, 7), y
 			}
-			return x, y
+			// return x, y
 		},
 	}
 }

@@ -128,8 +128,8 @@ func (d *Device) handleCSISequence(seq []rune) {
 					// if BoldColors is enabled, setting bold bumps
 					// the fg color
 					for i := range 8 {
-						if d.attr.Fg == d.Render.colorSystem.PaletteANSI[i] {
-							d.attr.Fg = d.Render.colorSystem.PaletteANSI[i+8]
+						if d.attr.Fg == ColorANSI(i) {
+							d.attr.Fg = ColorANSI(i + 8)
 							break
 						}
 					}
@@ -145,8 +145,8 @@ func (d *Device) handleCSISequence(seq []rune) {
 					// if BoldColors is enabled, unsetting bold drops
 					// the fg color
 					for i := range 8 {
-						if d.attr.Fg == d.Render.colorSystem.PaletteANSI[i+8] {
-							d.attr.Fg = d.Render.colorSystem.PaletteANSI[i]
+						if d.attr.Fg == ColorANSI(i+8) {
+							d.attr.Fg = ColorANSI(i)
 							break
 						}
 					}
@@ -190,20 +190,20 @@ func (d *Device) handleCSISequence(seq []rune) {
 				d.attr.Strike = false
 			case 30, 31, 32, 33, 34, 35, 36, 37:
 				if d.Config.BoldColors && d.attr.Bold {
-					d.attr.Fg = d.Render.colorSystem.PaletteANSI[args[i]-30+8]
+					d.attr.Fg = ColorANSI(args[i] - 30 + 8)
 				} else {
-					d.attr.Fg = d.Render.colorSystem.PaletteANSI[args[i]-30]
+					d.attr.Fg = ColorANSI(args[i] - 30)
 				}
 			case 39:
 				d.attr.Fg = d.attrDefault.Fg
 			case 40, 41, 42, 43, 44, 45, 46, 47:
-				d.attr.Bg = d.Render.colorSystem.PaletteANSI[args[i]-40]
+				d.attr.Bg = ColorANSI(args[i] - 40)
 			case 49:
 				d.attr.Bg = d.attrDefault.Bg
 			case 90, 91, 92, 93, 94, 95, 96, 97:
-				d.attr.Fg = d.Render.colorSystem.PaletteANSI[args[i]-90+8]
+				d.attr.Fg = ColorANSI(args[i] - 90 + 8)
 			case 100, 101, 102, 103, 104, 105, 106, 107:
-				d.attr.Bg = d.Render.colorSystem.PaletteANSI[args[i]-100+8]
+				d.attr.Bg = ColorANSI(args[i] - 100 + 8)
 			// 24bit True Color and 256-Color support support
 			case 38, 48:
 				if i+1 >= len(args) {
@@ -213,9 +213,9 @@ func (d *Device) handleCSISequence(seq []rune) {
 					// prevent going out of range
 					args[i] = args[i] % 256
 					if args[i] == 38 {
-						d.attr.Fg = d.Render.colorSystem.Palette256[args[i+2]]
+						d.attr.Fg = Color256(args[i+2])
 					} else {
-						d.attr.Bg = d.Render.colorSystem.Palette256[args[i+2]]
+						d.attr.Bg = Color256(args[i+2])
 					}
 					i += 2
 					continue
@@ -229,9 +229,9 @@ func (d *Device) handleCSISequence(seq []rune) {
 				r, g, b = getRGB(args[i:])
 				i += 2
 				if args[i-4] == 38 {
-					d.attr.Fg = d.Render.colorSystem.NewRGB(r, g, b)
+					d.attr.Fg = NewOpaqueColor(r, g, b)
 				} else {
-					d.attr.Bg = d.Render.colorSystem.NewRGB(r, g, b)
+					d.attr.Bg = NewOpaqueColor(r, g, b)
 				}
 			default:
 				if ShowUnhandled {

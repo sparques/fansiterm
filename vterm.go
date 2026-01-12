@@ -37,7 +37,7 @@ var (
 type Device struct {
 	// BellFunc is called if it is non-null and the terminal would
 	// display a bell character
-	BellFunc func()
+	BellFunc func(id string)
 
 	// Config specifies the runtime configurable features of fansiterm.
 	Config Config
@@ -80,6 +80,22 @@ type Device struct {
 	// Default is io.Discard. Setting to nil will cause Escape Sequences that
 	// write a response to panic.
 	Output io.Writer
+
+	// UserResetFunc is called when fansiterm's Reset() method is called. This
+	// is the same Reset triggered by an \x1bc escape sequence. This can be used
+	// to reset a hardware display.
+	UserResetFunc func()
+
+	// writeQueue is a channel for queuing up writes. On large systems, this is
+	// not necessary. But in constrained spaces like microcontrollers, Write is
+	// likely being called from an interrupt service routine and needs to return
+	// as quickly as possible. So Write() copies data and then puts it into
+	// the writeQueue
+	// Writing to a chan in an ISR isn't great either, but the chan should be
+	// sized such that it never blocks.
+	writeQueue chan []byte
+
+	done chan struct{}
 
 	sync.Mutex
 }
@@ -133,7 +149,7 @@ func New(cols, rows int, buf draw.Image) *Device {
 	}
 
 	// yoink the color model to init our colorSystem
-	colorSystem := NewColorSystem(buf.ColorModel())
+	//colorSystem := NewColorSystem(buf.ColorModel())
 
 	// figure out our actual terminal bounds.
 	bounds := image.Rect(0, 0, cell.Dx()*cols, cell.Dy()*rows).Add(buf.Bounds().Min)
@@ -151,11 +167,13 @@ func New(cols, rows int, buf draw.Image) *Device {
 	altCharSet := altCharsetViaUnicode(charSet)
 
 	d := &Device{
-		cols: cols,
-		rows: rows,
+		writeQueue: make(chan []byte, 256),
+		done:       make(chan struct{}),
+		cols:       cols,
+		rows:       rows,
 		Render: Render{
-			Image:         buf,
-			colorSystem:   colorSystem,
+			Image: buf,
+			// colorSystem:   colorSystem,
 			bounds:        bounds,
 			AltCharSet:    altCharSet,
 			CharSet:       charSet,
@@ -167,10 +185,11 @@ func New(cols, rows int, buf draw.Image) *Device {
 		cursor: Cursor{
 			show: true,
 		},
-		Config:       ConfigDefault,
-		Output:       io.Discard,
-		Properties:   make(map[Property]string),
-		scrollRegion: [2]int{0, rows - 1},
+		Config:        ConfigDefault,
+		Output:        io.Discard,
+		Properties:    make(map[Property]string),
+		scrollRegion:  [2]int{0, rows - 1},
+		UserResetFunc: func() {},
 	}
 
 	// link cursor's rows/cols back to *Device
@@ -178,8 +197,8 @@ func New(cols, rows int, buf draw.Image) *Device {
 	d.cursor.cols = &d.cols
 
 	// Establish defaults
-	d.attrDefault.Fg = colorSystem.PaletteANSI[7]
-	d.attrDefault.Bg = colorSystem.PaletteANSI[0]
+	d.attrDefault.Fg = defaultFg
+	d.attrDefault.Bg = defaultBg
 
 	// use hardware accelerated functions where possible
 	// VectorScroll is the most flexible and least performant, even if implemented in hardware.
@@ -245,6 +264,8 @@ func New(cols, rows int, buf draw.Image) *Device {
 	d.Reset()
 	d.updateAttr()
 
+	go d.queueHandler()
+
 	return d
 }
 
@@ -290,6 +311,7 @@ func NewWithBuf(buf draw.Image) *Device {
 }
 
 func (d *Device) Reset() {
+	d.UserResetFunc()
 	d.attr = d.attrDefault
 	d.Render.active.g[0] = &d.Render.CharSet
 	d.Render.active.g[1] = &d.Render.AltCharSet
@@ -375,12 +397,45 @@ func (d *Device) Size() (int, int) {
 // is written to Device, the beginning will be bufferred and prepended to the next write.
 // Certain broken escape sequence can potentially block forever.
 func (d *Device) Write(data []byte) (n int, err error) {
-	d.Lock()
-	defer d.Unlock()
+	// this function exists to shorten the amount of code that runs potentially
+	// triggered by an interrupt if we're getting data from UART or SPI.
+	// Doing a chan write and allocating memory are also not great to do in
+	// an interrupt, but we're going with the lesser evils.
 
-	if d.Render.DisplayFunc != nil {
-		defer d.Render.DisplayFunc()
+	// copy data
+	dataCopy := make([]byte, len(data))
+	copy(dataCopy, data)
+	// shove into write queue
+	d.writeQueue <- dataCopy
+	return len(data), nil
+}
+
+func (d *Device) queueHandler() {
+	// since I have to have this background goroutine, I could add a tick here
+	// to run periodic tasks... like blinking a curosr
+	tick := time.NewTicker(time.Second / 2)
+	for {
+		select {
+		case <-d.done:
+			// close writeQueue here??
+			return
+		case <-tick.C:
+			// if d.cursor.show {
+			// 	d.BlinkCursor()
+			// }
+		case data := <-d.writeQueue:
+			d.write(data)
+		}
 	}
+}
+
+func (d *Device) Stop() {
+	d.done <- struct{}{}
+}
+
+// write is the actual implementation. Write
+func (d *Device) write(data []byte) (n int, err error) {
+	d.Lock()
 
 	runes := bytes.Runes(data)
 
@@ -388,19 +443,17 @@ func (d *Device) Write(data []byte) (n int, err error) {
 	if d.cursor.visible {
 		d.toggleCursor()
 	}
-	defer d.showCursor()
 
 	if len(d.inputBuf) != 0 {
 		runes = append(d.inputBuf, runes...)
 		d.inputBuf = []rune{}
 	}
 
-	// var endIdx int
 	for i := 0; i < len(runes); i++ {
 		switch runes[i] {
 		case '\a': // bell
 			if d.BellFunc != nil {
-				d.BellFunc()
+				d.BellFunc("bel")
 			}
 		case '\b': // backspace
 			// whatever is connected to the terminal needs to handle line/character editing
@@ -465,5 +518,14 @@ func (d *Device) Write(data []byte) (n int, err error) {
 		}
 	}
 
+	// Re-paint cursor if needed
+	d.showCursor()
+
+	// TinyGo struggles with defers so this has been moved here.
+	if d.Render.DisplayFunc != nil {
+		d.Render.DisplayFunc()
+	}
+
+	d.Unlock()
 	return len(data), nil
 }
