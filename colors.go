@@ -46,7 +46,7 @@ func Color256(n int) (c Color) {
 			return defaultFg
 		}
 	}
-	return
+	return Palette256[n%256]
 }
 
 func NewColorFromRGBA(c color.RGBA) Color {

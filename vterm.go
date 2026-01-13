@@ -20,15 +20,6 @@ import (
 	"github.com/sparques/gfx"
 )
 
-/*
-var (
-	// OptionMonochrome if true disables color pallete initialization. If using a monochrome
-	// display, this saves a fair amount of memory. Must be set before calling any of the
-	// NewDevice functions. Default is false.
-	OptionMonochrome bool = false
-)
-*/
-
 // Device implements a virtual terminal. It satisfies the io.Writer interface
 // and supports ANSI escape sequences, custom fonts, raster graphics, and more.
 // It is thread-safe and optimized for embedded or minimal environments.
@@ -172,8 +163,7 @@ func New(cols, rows int, buf draw.Image) *Device {
 		cols:       cols,
 		rows:       rows,
 		Render: Render{
-			Image: buf,
-			// colorSystem:   colorSystem,
+			Image:         buf,
 			bounds:        bounds,
 			AltCharSet:    altCharSet,
 			CharSet:       charSet,
