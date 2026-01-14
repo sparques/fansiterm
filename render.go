@@ -165,6 +165,12 @@ func (d *Device) RenderRune(sym rune) (width int) {
 	return
 }
 
+var (
+	BlockCursor      = cursorRectFunc(blockRect)
+	BeamCursor       = cursorRectFunc(beamRect)
+	UnderscoreCursor = cursorRectFunc(underscoreRect)
+)
+
 func blockRect(cell image.Rectangle, pt image.Point) image.Rectangle {
 	return cell.Add(pt)
 }

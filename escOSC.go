@@ -25,7 +25,7 @@ func (d *Device) handleOSCSequence(seq []rune) {
 		fmt.Fprintf(d.Output, "\x1b]11;rgb:%d/%d/%d\x1b/", bg.R, bg.G, bg.B)
 	default:
 		if ShowUnhandled {
-			fmt.Println("Unhandled OSC:", seqString(seq))
+			log.Warn("unhandled OSC", "sequence", seqString(seq))
 		}
 	}
 }

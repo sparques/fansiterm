@@ -235,7 +235,7 @@ func (d *Device) handleCSISequence(seq []rune) {
 				}
 			default:
 				if ShowUnhandled {
-					fmt.Println("Unhandled SGR:", args[i], "(part of", seqString(seq), ")")
+					log.Warn("unhandled SGR", "unhandled", args[i], "from", seqString(seq))
 				}
 
 			} // switch for SGR
@@ -307,7 +307,7 @@ func (d *Device) handleCSISequence(seq []rune) {
 			// given fansiterm's intended use case, this is going unimplemented.
 		default:
 			if ShowUnhandled {
-				fmt.Println("Unhandled Private Sequence", seqString(seq))
+				log.Warn("unhandled private escape sequence", seqString(seq))
 			}
 		}
 	case 'r': // set scroll region
@@ -328,7 +328,7 @@ func (d *Device) handleCSISequence(seq []rune) {
 		d.cursor.RestorePos()
 	default:
 		if ShowUnhandled {
-			fmt.Println("Unhandled CSI:", seqString(seq))
+			log.Warn("unhandled CSI", "sequence", seqString(seq))
 		}
 	} // switch seq[len(seq)-1]
 }

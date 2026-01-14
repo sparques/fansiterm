@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"encoding/base64"
 	"errors"
-	"fmt"
 	"image"
 	"strconv"
 	"strings"
@@ -29,7 +28,7 @@ var (
 // a panic.
 func (d *Device) handleEscSequence(seq []rune) {
 	if ShowEsc {
-		fmt.Println(seqString(seq))
+		log.Info("handling escape sequence", "sequence", seqString(seq))
 	}
 	switch seq[1] {
 	case '7': // save cursor position
@@ -85,7 +84,7 @@ func (d *Device) handleEscSequence(seq []rune) {
 		fallthrough
 	default:
 		if ShowUnhandled {
-			fmt.Println("Unhandled ESC:", seqString(seq))
+			log.Warn("unhandled escape sequence", "sequence", seqString(seq))
 		}
 	}
 	d.updateAttr()
