@@ -15,10 +15,9 @@ import (
 type cursorRectFunc func(image.Rectangle, image.Point) image.Rectangle
 
 var (
-	// CursorBlock, CursorBeam, and CursorUnderscore are the 3 cursor display options.
-	CursorBlock      = blockRect
-	CursorBeam       = beamRect
-	CursorUnderscore = underscoreRect
+	BlockCursor      = cursorRectFunc(blockRect)
+	BeamCursor       = cursorRectFunc(beamRect)
+	UnderscoreCursor = cursorRectFunc(underscoreRect)
 )
 
 var unicode = runewidth.NewCondition()
@@ -164,12 +163,6 @@ func (d *Device) RenderRune(sym rune) (width int) {
 
 	return
 }
-
-var (
-	BlockCursor      = cursorRectFunc(blockRect)
-	BeamCursor       = cursorRectFunc(beamRect)
-	UnderscoreCursor = cursorRectFunc(underscoreRect)
-)
 
 func blockRect(cell image.Rectangle, pt image.Point) image.Rectangle {
 	return cell.Add(pt)
