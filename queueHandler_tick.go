@@ -2,7 +2,9 @@
 
 package fansiterm
 
-import "time"
+import (
+	"time"
+)
 
 func (d *Device) queueHandler() {
 	// since I have to have this background goroutine, I could add a tick here

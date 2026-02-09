@@ -15,7 +15,6 @@ type Cursor struct {
 	// visible is whether or not the cursor is currently visible. When rendering text,
 	// we hide the cursor, then re-enable it when done.
 	visible bool
-
 	// prevPos is for saving cursor position; The indicies are col, row.
 	prevPos [2]int
 

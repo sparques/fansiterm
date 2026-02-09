@@ -190,6 +190,79 @@ func New(cols, rows int, buf draw.Image) *Device {
 	d.attrDefault.Fg = defaultFg
 	d.attrDefault.Bg = defaultBg
 
+	d.UseBuf(buf)
+
+	d.Render.active.g = make([]*tiles.Tiler, 2)
+	d.Reset()
+	d.updateAttr()
+
+	go d.queueHandler()
+
+	return d
+}
+
+// NewAtResolution returns a new Device sized to fit a resolution (x,y), centering the terminal.
+func NewAtResolution(x, y int, buf draw.Image) *Device {
+	// TODO: This is a crappy way of figuring out what font we're using. Do something else.
+	d := New(1, 1, nil)
+	// use d.Render.cell to figure out rows and cols; integer division will round down
+	// which is what we want
+	cols := x / d.Render.cell.Max.X
+	rows := y / d.Render.cell.Max.Y
+
+	if buf == nil {
+		buf = image.NewRGBA(image.Rect(0, 0, x, y))
+	}
+
+	return New(cols, rows, buf)
+}
+
+// NewWithBuf uses buf as its target. NewWithBuf() will panic if called against a
+// nil buf. If using fansiterm with backing hardware, NewWithBuf is likely the way
+// you want to instantiate fansiterm.
+// If you have buf providing an interface to a 240x135 screen, using the default
+// 8x16 tiles, you can have an 40x8 cell terminal, with 7 rows of pixels leftover.
+// If you want to have those extra 7 rows above the rendered terminal, you can do
+// so like this:
+//
+// term := NewWithBuf(xform.SubImage(buf,image.Rect(0,0,240,128).Add(0,7)))
+//
+// Note: you can skip the Add() and just define your rectangle as
+// image.Rect(0,7,240,135), but I find supplying the actual dimensions and then
+// adding an offset to be clearer.
+func NewWithBuf(buf draw.Image) *Device {
+	if buf == nil {
+		panic("NewWithBuf must be called with non-nil buf")
+	}
+
+	// TODO: How do I dynamically do this in a way that makes sense?
+	cols := buf.Bounds().Dx() / 8
+	rows := buf.Bounds().Dy() / 16
+
+	return New(cols, rows, buf)
+}
+
+func (d *Device) UseBuf(buf draw.Image) {
+	cell := d.Render.cell
+	d.cols = buf.Bounds().Dx() / 8
+	d.rows = buf.Bounds().Dy() / 16
+
+	origBounds := d.Render.Image.Bounds()
+
+	// figure out our actual terminal bounds.
+	bounds := image.Rect(0, 0, cell.Dx()*d.cols, cell.Dy()*d.rows).Add(buf.Bounds().Min)
+
+	// if our backing buffer is bigger than our grid of cells, center the terminal
+	// ... more or less.
+
+	// figure out how much we need to shift around
+	offset := image.Pt((buf.Bounds().Dx()%cell.Dx())/2, (buf.Bounds().Dy()%cell.Dy())/2)
+
+	// shift around
+	bounds = bounds.Add(offset)
+	d.Render.bounds = bounds
+	d.Render.Image = buf
+
 	// use hardware accelerated functions where possible
 	// VectorScroll is the most flexible and least performant, even if implemented in hardware.
 	// VectorScroll can be used to perform RegionScroll and Scroll
@@ -246,58 +319,12 @@ func New(cols, rows int, buf draw.Image) *Device {
 		}
 	}
 
-	// only pre-fill our area. If user wants the rest of the buffer colored in, that's
-	// on them.
-	d.Render.Fill(bounds, d.attrDefault.Bg)
-
-	d.Render.active.g = make([]*tiles.Tiler, 2)
-	d.Reset()
-	d.updateAttr()
-
-	go d.queueHandler()
-
-	return d
-}
-
-// NewAtResolution returns a new Device sized to fit a resolution (x,y), centering the terminal.
-func NewAtResolution(x, y int, buf draw.Image) *Device {
-	// TODO: This is a crappy way of figuring out what font we're using. Do something else.
-	d := New(1, 1, nil)
-	// use d.Render.cell to figure out rows and cols; integer division will round down
-	// which is what we want
-	cols := x / d.Render.cell.Max.X
-	rows := y / d.Render.cell.Max.Y
-
-	if buf == nil {
-		buf = image.NewRGBA(image.Rect(0, 0, x, y))
+	if !origBounds.Eq(bounds) {
+		bottom, right := rectDiff(origBounds, bounds)
+		d.Render.Fill(bottom, d.attrDefault.Bg)
+		d.Render.Fill(right, d.attrDefault.Bg)
 	}
 
-	return New(cols, rows, buf)
-}
-
-// NewWithBuf uses buf as its target. NewWithBuf() will panic if called against a
-// nil buf. If using fansiterm with backing hardware, NewWithBuf is likely the way
-// you want to instantiate fansiterm.
-// If you have buf providing an interface to a 240x135 screen, using the default
-// 8x16 tiles, you can have an 40x8 cell terminal, with 7 rows of pixels leftover.
-// If you want to have those extra 7 rows above the rendered terminal, you can do
-// so like this:
-//
-// term := NewWithBuf(xform.SubImage(buf,image.Rect(0,0,240,128).Add(0,7)))
-//
-// Note: you can skip the Add() and just define your rectangle as
-// image.Rect(0,7,240,135), but I find supplying the actual dimensions and then
-// adding an offset to be clearer.
-func NewWithBuf(buf draw.Image) *Device {
-	if buf == nil {
-		panic("NewWithBuf must be called with non-nil buf")
-	}
-
-	// TODO: How do I dynamically do this in a way that makes sense?
-	cols := buf.Bounds().Dx() / 8
-	rows := buf.Bounds().Dy() / 16
-
-	return New(cols, rows, buf)
 }
 
 func (d *Device) Reset() {
@@ -501,4 +528,20 @@ func (d *Device) write(data []byte) (n int, err error) {
 
 	d.Unlock()
 	return len(data), nil
+}
+
+func rectDiff(a, b image.Rectangle) (right, bottom image.Rectangle) {
+	a = a.Canon()
+	b = b.Canon()
+
+	right.Min.X = min(a.Max.X, b.Max.X)
+	// Min.Y is already zero
+	right.Max.X = max(a.Max.X, b.Max.X)
+	right.Max.Y = max(a.Max.Y, b.Max.Y)
+
+	// bottom.Min.X already zero
+	bottom.Min.Y = min(a.Max.Y, b.Max.Y)
+	bottom.Max = right.Max
+
+	return
 }
