@@ -322,7 +322,9 @@ func (d *Device) SetCursorStyle(style cursorRectFunc) {
 
 func (d *Device) BlinkCursor() {
 	d.toggleCursor()
-	d.Render.DisplayFunc()
+	if d.Render.DisplayFunc != nil {
+		d.Render.DisplayFunc()
+	}
 }
 
 func (d *Device) SetAttrDefault(attr Attr) {
@@ -462,7 +464,7 @@ func (d *Device) write(data []byte) (n int, err error) {
 				// copy runes[i:] to d.inputBuf and wait for more input
 				d.inputBuf = runes[i:]
 				i += len(runes[i:])
-				continue
+				break
 			}
 			d.handleEscSequence(runes[i : i+n])
 			i += n - 1

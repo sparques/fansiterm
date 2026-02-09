@@ -7,10 +7,21 @@ import (
 	"image/color"
 	"image/draw"
 	_ "image/jpeg"
+	"strconv"
 	"strings"
 
 	"github.com/sparques/fansiterm/tiles"
+	"github.com/sparques/fansiterm/xform"
 )
+
+func colorToHex(c color.Color) string {
+	r, g, b, _ := c.RGBA()
+	r /= 0x101
+	g /= 0x101
+	b /= 0x101
+
+	return fmt.Sprintf("#%02x%02x%02x", r, g, b)
+}
 
 func (d *Device) handleFansiSequence(seq []rune) {
 	seq = trimST(seq)
@@ -20,10 +31,16 @@ func (d *Device) handleFansiSequence(seq []rune) {
 	}
 	params := splitParams(seq[1:])
 	switch seq[0] {
-	case 'a': // a like \a for bel
-		if d.BellFunc != nil {
-			d.BellFunc(strings.TrimPrefix(string(seq), "a"))
+	case 'A', 'a': // A for At(); report color at pixel specified by absolute addressing (A) or relative to cursor (a)
+		fmt.Fprintf(d.Output, "OKAY")
+		var loc image.Point
+		fmt.Sscanf(string(params[0]), "%d,%d", &loc.X, &loc.Y)
+		loc = loc.Add(d.Render.bounds.Min)
+		if seq[0] == 'a' {
+			loc = loc.Add(d.cursorPt())
 		}
+		c := d.Render.At(loc.X, loc.Y)
+		fmt.Fprintf(d.Output, "\x1b/%c%d,%d;%s\a", seq[0], loc.X, loc.Y, colorToHex(c))
 	case 'B': // B for Blit
 		// ESC/B<pixdata>ESC\
 		// Display image defined by pixdata at cursor location; no scalling is done
@@ -73,7 +90,6 @@ func (d *Device) handleFansiSequence(seq []rune) {
 			x++
 		}
 		d.cursor.MoveRel(x, 0)
-
 	case 'C': // C for Cell
 		// ESC/C<pixdata>ESC\
 		// ESC/C receives pixel data and puts it in the cursor's current position.
@@ -106,6 +122,43 @@ func (d *Device) handleFansiSequence(seq []rune) {
 		}
 		draw.Draw(d.Render, d.Render.cell.Add(d.cursorPt()), img, pt, draw.Over)
 		d.cursor.MoveRel(1, 0)
+	case 'c': // c for cell, but smaller
+		// ESC/c<pixdata>ESC\
+		// Receives 1-bit pixel data, drawing it to the cell under the cursor
+		// 'on' pixels are drawn using fg color and 'off' pixels are drawning using
+		// bg color. Must be exactly 32 bytes. Each byte is a hex value nyble.
+		// Bytes are BIG ENDIAN--most significant bit maps to the left most column.
+
+		data := []byte(string(params[0]))
+		cell := &tiles.AlphaCell{}
+
+		// we accept hex digits (32 of them) or base64 (24)
+		switch len(data) {
+		case 24:
+			buf, _ := base64.StdEncoding.DecodeString(string(params[0]))
+			for i := range 16 {
+				cell.Pix[i] = uint8(buf[i])
+			}
+		case 32:
+			for i := range cell.Pix {
+				v, _ := strconv.ParseUint(string(data[i*2:i*2+2]), 16, 8)
+				cell.Pix[i] = uint8(v)
+			}
+		default:
+			return
+		}
+		tiles.DrawTile(d.Render.Image, d.cursorPt(), cell, d.Render.active.fg, d.Render.active.bg)
+
+		//increment cursor as though we just rendered a regular tile
+		d.cursor.col++
+		if d.Config.Wraparound {
+			d.cursor.col = bound(d.cursor.col, 0, d.cols-1)
+		}
+
+	case 'd': // d as in 'ding' for bel
+		if d.BellFunc != nil {
+			d.BellFunc(string(seq[1:]))
+		}
 	case 'F': // F for Fill
 		var (
 			rect image.Rectangle
@@ -117,12 +170,27 @@ func (d *Device) handleFansiSequence(seq []rune) {
 		if n != 7 {
 			n, _ = fmt.Sscanf(string(seq), "F%d,%d;%d,%d;%d,%d,%d", &rect.Min.X, &rect.Min.Y, &rect.Max.X, &rect.Max.Y, &c.R, &c.G, &c.B)
 		}
-		if n != 7 {
+
+		rect = rect.Canon()
+
+		if n == 4 {
+			// fill with foreground
+			d.Render.Fill(rect.Add(d.Render.bounds.Min), d.Render.active.fg)
 			return
 		}
 
-		rect = rect.Canon()
 		d.Render.Fill(rect.Add(d.Render.bounds.Min), c)
+	case 'I': // I for Invert
+		var (
+			region image.Rectangle
+		)
+		n, _ := fmt.Sscanf(string(seq), "I%d,%d;%d,%d", &region.Min.X, &region.Min.Y, &region.Max.X, &region.Max.Y)
+		if n != 4 {
+			return
+		}
+		region = region.Canon()
+		draw.Draw(d.Render.Image, d.Render.Bounds().Intersect(region), xform.InvertColors(d.Render.Image), region.Min, draw.Src)
+
 	case 'L': // L for line
 		var (
 			pt1, pt2 image.Point
@@ -348,7 +416,33 @@ func (d *Device) handleFansiSequence(seq []rune) {
 				d.Render.Set(-yp+x, -xp+y, c)
 			}
 		*/
-	case 's': // s for save; save an image and map it to a unicode code point
+	case 'S', 's': // S for Set; set a single pixel using absolute (S) or cursor relative (s) addressing
+		if len(seq) < 2 {
+			return
+		}
+		var (
+			pt image.Point
+			c  color.RGBA
+			n  int
+		)
+		if strings.Contains(string(seq), "#") {
+			n, _ = fmt.Sscanf(string(seq[1:]), "%d,%d;#%2x%2x%2x", &pt.X, &pt.Y, &c.R, &c.G, &c.B)
+		} else {
+			n, _ = fmt.Sscanf(string(seq[1:]), "%d,%d;%d,%d,%d", &pt.X, &pt.Y, &c.R, &c.G, &c.B)
+		}
+		pt = pt.Add(d.Render.bounds.Min)
+		if seq[0] == 's' {
+			pt = pt.Add(d.cursorPt())
+		}
+		pt = pt.Mod(d.Render.bounds)
+		switch n {
+		case 2:
+			d.Render.Set(pt.X, pt.Y, d.Render.active.fg)
+		case 5:
+			d.Render.Set(pt.X, pt.Y, c)
+		default:
+		}
+	case 'u': // u for user/unicode ; save an image and map it to a unicode code point
 		img, err := DecodeImageData(params[1])
 		if err != nil {
 			return
@@ -362,26 +456,6 @@ func (d *Device) handleFansiSequence(seq []rune) {
 		// TODO: convert to native pixel format using NewImage
 
 		d.Render.User[params[0][0]] = img
-
-	case 'S': // S for Set; set a single pixel
-		var (
-			pt image.Point
-			c  color.RGBA
-			n  int
-		)
-		if strings.Contains(string(seq), "#") {
-			n, _ = fmt.Sscanf(string(seq), "S%d,%d;#%2x%2x%2x", &pt.X, &pt.Y, &c.R, &c.G, &c.B)
-		} else {
-			n, _ = fmt.Sscanf(string(seq), "S%d,%d;%d,%d,%d", &pt.X, &pt.Y, &c.R, &c.G, &c.B)
-		}
-		pt = pt.Add(d.Render.bounds.Min).Mod(d.Render.bounds)
-		switch n {
-		case 2:
-			d.Render.Set(pt.X, pt.Y, d.Render.active.fg)
-		case 5:
-			d.Render.Set(pt.X, pt.Y, c)
-		default:
-		}
 	case 'V': // V for vectorScroll
 		var (
 			region image.Rectangle

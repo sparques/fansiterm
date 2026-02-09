@@ -403,6 +403,10 @@ type Bold struct {
 	*FontTileSet
 }
 
+func DrawTile(dst draw.Image, pt image.Point, src image.Image, fg color.Color, bg color.Color) {
+	drawTile(dst, pt, src, fg, bg)
+}
+
 // drawTile is a broadly compatible, if not efficient, way to draw a tile.
 func drawTile(dst draw.Image, pt image.Point, src image.Image, fg color.Color, bg color.Color) {
 	for y := range src.Bounds().Dy() {

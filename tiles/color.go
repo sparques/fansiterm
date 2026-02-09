@@ -98,7 +98,6 @@ func (a *Alpha1) At(x, y int) (c color.Color) {
 
 func (a *Alpha1) Set(x, y int, c color.Color) {
 	native := BitAlphaModel.Convert(c).(BitAlpha)
-
 	if native {
 		a.Pix[y*a.Stride+x/8] |= 0x80 >> (x % 8)
 	} else {
