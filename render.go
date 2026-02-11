@@ -108,9 +108,9 @@ func (d *Device) RenderRune(sym rune) (width int) {
 	if width == 0 {
 		// FIXME: corner case of using a zero-width (combining) character
 		// when we're in the last column
-		(*d.Render.active.tileSet).DrawTile(sym, d.Render.Image, d.cursorPt().Add(image.Pt(-d.Render.cell.Dx(), 0)), d.Render.active.fg, color.Alpha{0})
+		(*d.Render.active.tileSet).DrawTile(sym, d.Render, d.cursorPt().Add(image.Pt(-d.Render.cell.Dx(), 0)), d.Render.active.fg, color.Alpha{0})
 	} else {
-		(*d.Render.active.tileSet).DrawTile(sym, d.Render.Image, d.cursorPt(), d.Render.active.fg, d.Render.active.bg)
+		(*d.Render.active.tileSet).DrawTile(sym, d.Render, d.cursorPt(), d.Render.active.fg, d.Render.active.bg)
 	}
 
 	if d.attr.Strike {
@@ -289,4 +289,10 @@ func (r *Render) VectorScroll(region image.Rectangle, vector image.Point) {
 func (r *Render) Fill(region image.Rectangle, c color.Color) {
 	region = region.Intersect(r.bounds)
 	r.fill(region, c)
+}
+
+func copyImage(img image.Image) (cp *image.RGBA) {
+	cp = image.NewRGBA(img.Bounds())
+	draw.Draw(cp, img.Bounds(), img, img.Bounds().Min, draw.Src)
+	return
 }

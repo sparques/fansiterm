@@ -33,6 +33,10 @@ type Device struct {
 	// Config specifies the runtime configurable features of fansiterm.
 	Config Config
 
+	// ConfigUpdate, if non-nil, is called when the config changes.
+	ConfigUpdate func(conf Config)
+	// Consider adding a ConfigSet func(Config) field. Just sayin'
+
 	// cols and rows specify the size in characters of the terminal.
 	cols, rows int
 
@@ -57,9 +61,6 @@ type Device struct {
 	// inputBuf buffers chracters between write calls. This is exclusively used to
 	// buffer incomplete escape sequences.
 	inputBuf []rune
-
-	// Miscellaneous properties, like "Window Title"
-	Properties map[Property]string
 
 	// saveBuf is used to store the main buffer when the alternate screen
 	// is used.
@@ -91,17 +92,6 @@ type Device struct {
 	sync.Mutex
 }
 
-// Config defines runtime settings for a Device.
-type Config struct {
-	TabSize                  int  // Number of spaces per tab.
-	StrikethroughHeight      int  // Pixel height offset for strike-through.
-	CursorStyle              int  // Default cursor style.
-	BoldColors               bool // Whether bold colors are enabled.
-	AltScreen                bool // Enable alternate screen buffer (expensive on MCUs).
-	Wraparound               bool // Whether text wraps at the screen edge.
-	CursorKeyApplicationMode bool // Enable application mode for cursor keys.
-}
-
 // Attr defines the attributes applied to rendered text.
 type Attr struct {
 	Bold            bool
@@ -114,13 +104,6 @@ type Attr struct {
 	Conceal         bool
 	Fg              Color
 	Bg              Color
-}
-
-// ConfigDefault provides the default configuration values for a Device.
-var ConfigDefault = Config{
-	TabSize:             8,
-	StrikethroughHeight: 7,
-	BoldColors:          true,
 }
 
 // New initializes a new terminal device with the specified dimensions and optional draw.Image buffer.
@@ -160,8 +143,9 @@ func New(cols, rows int, buf draw.Image) *Device {
 	d := &Device{
 		writeQueue: make(chan []byte, 256),
 		done:       make(chan struct{}),
-		cols:       cols,
-		rows:       rows,
+		// bufChan:    make(chan draw.Image),
+		cols: cols,
+		rows: rows,
 		Render: Render{
 			Image:         buf,
 			bounds:        bounds,
@@ -175,9 +159,8 @@ func New(cols, rows int, buf draw.Image) *Device {
 		cursor: Cursor{
 			show: true,
 		},
-		Config:        ConfigDefault,
+		Config:        NewConfig(),
 		Output:        io.Discard,
-		Properties:    make(map[Property]string),
 		scrollRegion:  [2]int{0, rows - 1},
 		UserResetFunc: func() {},
 	}
@@ -190,7 +173,7 @@ func New(cols, rows int, buf draw.Image) *Device {
 	d.attrDefault.Fg = defaultFg
 	d.attrDefault.Bg = defaultBg
 
-	d.UseBuf(buf)
+	d.useBuf(buf)
 
 	d.Render.active.g = make([]*tiles.Tiler, 2)
 	d.Reset()
@@ -243,11 +226,18 @@ func NewWithBuf(buf draw.Image) *Device {
 }
 
 func (d *Device) UseBuf(buf draw.Image) {
+	d.preUpdate()
+	d.useBuf(buf)
+	d.postUpdate()
+}
+
+func (d *Device) useBuf(buf draw.Image) {
 	cell := d.Render.cell
 	d.cols = buf.Bounds().Dx() / 8
 	d.rows = buf.Bounds().Dy() / 16
 
-	origBounds := d.Render.Image.Bounds()
+	// save the old buf
+	origBuf := copyImage(d.Render.Image)
 
 	// figure out our actual terminal bounds.
 	bounds := image.Rect(0, 0, cell.Dx()*d.cols, cell.Dy()*d.rows).Add(buf.Bounds().Min)
@@ -319,11 +309,8 @@ func (d *Device) UseBuf(buf draw.Image) {
 		}
 	}
 
-	if !origBounds.Eq(bounds) {
-		bottom, right := rectDiff(origBounds, bounds)
-		d.Render.Fill(bottom, d.attrDefault.Bg)
-		d.Render.Fill(right, d.attrDefault.Bg)
-	}
+	d.Render.Fill(d.Render.Image.Bounds(), d.attrDefault.Bg)
+	draw.Draw(d.Render.Image, origBuf.Bounds(), origBuf, origBuf.Bounds().Min, draw.Src)
 
 }
 
@@ -433,16 +420,29 @@ func (d *Device) Stop() {
 	d.done <- struct{}{}
 }
 
+// preUpdate runs tasks necessary before updating pixels--e.g. hiding cursor
+func (d *Device) preUpdate() {
+	// first un-invert cursor (if we're showing it)
+	if d.cursor.visible {
+		d.toggleCursor()
+	}
+
+}
+
+// postUpdate runs tasks necessary after updating pixels--e.g. showing cursor
+func (d *Device) postUpdate() {
+	if d.Render.DisplayFunc != nil {
+		d.Render.DisplayFunc()
+	}
+}
+
 // write is the actual implementation. Write
 func (d *Device) write(data []byte) (n int, err error) {
 	d.Lock()
 
 	runes := bytes.Runes(data)
 
-	// first un-invert cursor (if we're showing it)
-	if d.cursor.visible {
-		d.toggleCursor()
-	}
+	d.preUpdate()
 
 	if len(d.inputBuf) != 0 {
 		runes = append(d.inputBuf, runes...)
@@ -521,10 +521,7 @@ func (d *Device) write(data []byte) (n int, err error) {
 	// Re-paint cursor if needed
 	d.showCursor()
 
-	// TinyGo struggles with defers so this has been moved here.
-	if d.Render.DisplayFunc != nil {
-		d.Render.DisplayFunc()
-	}
+	d.postUpdate()
 
 	d.Unlock()
 	return len(data), nil

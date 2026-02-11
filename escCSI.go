@@ -268,12 +268,19 @@ func (d *Device) handleCSISequence(seq []rune) {
 			// should check this setting and adjust arrow-key input
 			// accordingly.ESC?12h
 			d.Config.CursorKeyApplicationMode = set
+			d.configChange()
 		case 7: // enable/disable wraparound mode.
 			// my god, getting end of line and end of terminal line wrapping
 			// working the first place was hard enough.
 			// wraparound is the process of if a line over flows (reaches EOL) it should continue onto the next line. With wrap around disabled, once the cursor gets to the end of the line, it no longer advances.
 			d.Config.Wraparound = !set
+			d.configChange()
+		case 9: //legacy mouse support
+			d.Config.MouseEvents = 9
+			d.configChange()
 		case 12: // local echo
+			d.Config.LocalEcho = set
+			d.configChange()
 		case 25: // show/hide cursor
 			if set {
 				d.cursor.show = true
@@ -283,7 +290,16 @@ func (d *Device) handleCSISequence(seq []rune) {
 					d.toggleCursor()
 				}
 			}
-		case 1000, 1006: // report mouse clicks
+		case 1000, 1002, 1003: // enable/disable mouse even reports
+			if set {
+				d.Config.MouseEvents = args[0]
+			} else {
+				d.Config.MouseEvents = 0
+			}
+			d.configChange()
+		case 1006:
+			d.Config.MouseSGR = set
+			d.configChange()
 		// no, not supported
 		case 47, 1049: // alt screen enable/disable
 			// 47 is save/restore screen.

@@ -15,6 +15,11 @@ func (d *Device) queueHandler() {
 		case <-d.done:
 			// close writeQueue here??
 			return
+			/*		case buf := <-d.bufChan:
+					// disable cursor
+					d.preUpdate()
+					d.useBuf(buf)
+					d.postUpdate()*/
 		case <-tick.C:
 			if d.cursor.show {
 				d.BlinkCursor()

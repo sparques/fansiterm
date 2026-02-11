@@ -147,7 +147,7 @@ func (d *Device) handleFansiSequence(seq []rune) {
 		default:
 			return
 		}
-		tiles.DrawTile(d.Render.Image, d.cursorPt(), cell, d.Render.active.fg, d.Render.active.bg)
+		tiles.DrawTile(d.Render, d.cursorPt(), cell, d.Render.active.fg, d.Render.active.bg)
 
 		//increment cursor as though we just rendered a regular tile
 		d.cursor.col++
@@ -189,7 +189,7 @@ func (d *Device) handleFansiSequence(seq []rune) {
 			return
 		}
 		region = region.Canon()
-		draw.Draw(d.Render.Image, d.Render.Bounds().Intersect(region), xform.InvertColors(d.Render.Image), region.Min, draw.Src)
+		draw.Draw(d.Render, d.Render.Bounds().Intersect(region), xform.InvertColors(d.Render), region.Min, draw.Src)
 
 	case 'L': // L for line
 		var (

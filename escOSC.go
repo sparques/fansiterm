@@ -16,7 +16,8 @@ func (d *Device) handleOSCSequence(seq []rune) {
 	switch args[0] {
 	case 0:
 		// xterm set window title
-		d.Properties[PropertyWindowTitle] = string(seq[2:])
+		d.Config.Properties[PropertyWindowTitle] = string(seq[2:])
+		d.configChange()
 	case 10: // query default foreground color
 		fg := color.RGBAModel.Convert(d.attrDefault.Fg).(color.RGBA)
 		fmt.Fprintf(d.Output, "\x1b]10;rgb:%d/%d/%d\x1b/", fg.R, fg.G, fg.B)
