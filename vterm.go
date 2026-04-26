@@ -109,13 +109,9 @@ type Attr struct {
 // New initializes a new terminal device with the specified dimensions and optional draw.Image buffer.
 // If buf is nil, a default in-memory RGBA buffer is allocated. The terminal's character size is fixed.
 func New(cols, rows int, buf draw.Image) *Device {
-	// Eventually I'd like to support different fonts and dynamic resizing
-	// I'm trying to get to an MVP first.
-	// thus, hardcoded font face
-	// 7x13 is smaller and non-antialiased. For small screens it might be a better choice
-	// than the 8x13 pre-render of inconsolata, however it doesn't have as many unicode-glyps
-	// as inconsolata.
-	//fontFace := basicfont.Face7x13
+	// fansiterm v1.x is strictly a tile-based terminal emulator. Eventually
+	// support for different tile sizes would be nice. The fansiterm backend
+	// and all the front-ends I've written all assume an 8x16 tile
 	cell := image.Rect(0, 0, 8, 16)
 
 	if buf == nil {
@@ -324,6 +320,8 @@ func (d *Device) Reset() {
 	d.cursor.MoveAbs(0, 0)
 	d.scrollArea = image.Rectangle{}
 	d.scrollRegion = [2]int{0, d.rows - 1}
+	d.Config = NewConfig()
+	d.configChange()
 }
 
 // SetCursorStyle changes the shape of the cursor. Valid options are CursorBlock,

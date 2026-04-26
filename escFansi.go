@@ -84,7 +84,8 @@ func (d *Device) handleFansiSequence(seq []rune) {
 			targetRect = targetRect.Canon().Add(d.Render.bounds.Min)
 		}
 
-		draw.Draw(d.Render, targetRect, img, image.Point{}, draw.Over)
+		// draw.Draw(d.Render, targetRect, img, image.Point{}, draw.Over)
+		draw.Draw(d.Render, targetRect, img, img.Bounds().Min, draw.Over)
 		x := targetRect.Dx() / d.Render.cell.Dx()
 		if targetRect.Dx()%d.Render.cell.Dx() != 0 {
 			x++
@@ -443,6 +444,9 @@ func (d *Device) handleFansiSequence(seq []rune) {
 		default:
 		}
 	case 'u': // u for user/unicode ; save an image and map it to a unicode code point
+		if len(params) != 2 {
+			return
+		}
 		img, err := DecodeImageData(params[1])
 		if err != nil {
 			return
@@ -454,8 +458,9 @@ func (d *Device) handleFansiSequence(seq []rune) {
 		}
 
 		// TODO: convert to native pixel format using NewImage
+		rn, _ := strconv.Atoi(string(params[0]))
 
-		d.Render.User[params[0][0]] = img
+		d.Render.User[rune(rn)] = img
 	case 'V': // V for vectorScroll
 		var (
 			region image.Rectangle
