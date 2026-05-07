@@ -82,3 +82,44 @@ func TestAlpha1FillAndScroll(t *testing.T) {
 		}
 	}
 }
+
+func TestFontTileSetPackedDenseLookup(t *testing.T) {
+	fts := &FontTileSet{
+		Rectangle: image.Rect(0, 0, 2, 1),
+		First:     'a',
+		Count:     2,
+		Index:     []uint16{1, 2},
+		Pix:       []uint8{1, 2, 3, 4},
+	}
+
+	glyph := fts.Glyph('b')
+	if glyph == nil {
+		t.Fatalf("expected packed glyph lookup to succeed")
+	}
+	if got := glyph.Pix; len(got) != 2 || got[0] != 3 || got[1] != 4 {
+		t.Fatalf("packed glyph = %#v, want []uint8{3, 4}", got)
+	}
+}
+
+func TestAlphaCellTileSetPackedSparseLookup(t *testing.T) {
+	ats := &AlphaCellTileSet{
+		Rectangle: image.Rect(0, 0, 8, 16),
+		Count:     2,
+		Sparse: []RuneIndex{
+			{Rune: 'x', Index: 1},
+			{Rune: 'z', Index: 2},
+		},
+		Cells: [][16]uint8{
+			{0xAA},
+			{0x55},
+		},
+	}
+
+	glyph := ats.Glyph('z')
+	if glyph == nil {
+		t.Fatalf("expected packed sparse glyph lookup to succeed")
+	}
+	if glyph.Pix[0] != 0x55 {
+		t.Fatalf("packed sparse glyph[0] = %#x, want %#x", glyph.Pix[0], 0x55)
+	}
+}

@@ -18,20 +18,14 @@ func Test_Dumpx3270(t *testing.T) {
 }
 
 func dumpFontTileSet(fts *tiles.FontTileSet) {
-	glyphcount := len(fts.Glyphs)
+	glyphcount := fts.Len()
 
 	rows := glyphcount/30 + 1
 
 	dst := image.NewRGBA(image.Rect(0, 0, 30*fts.Rectangle.Dx(), rows*fts.Rectangle.Dy()))
 	pt := image.Pt(0, 0)
 
-	runesPresent := make([]rune, len(fts.Glyphs))
-	var i int
-	for r := range fts.Glyphs {
-		runesPresent[i] = r
-		i++
-	}
-
+	runesPresent := fts.Runes()
 	slices.Sort(runesPresent)
 
 	for _, r := range runesPresent {
