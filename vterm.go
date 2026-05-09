@@ -510,7 +510,7 @@ func (d *Device) write(data []byte) (n int, err error) {
 			// FIXME: corner case where a >1 width rune happens
 			// at the last column
 			d.cursor.col += d.RenderRune(runes[i])
-			if d.Config.Wraparound {
+			if !d.Config.Wraparound {
 				d.cursor.col = bound(d.cursor.col, 0, d.cols-1)
 			}
 		}

@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"image"
-	"strconv"
 	"strings"
 
 	"golang.org/x/exp/constraints"
@@ -136,14 +135,53 @@ func consumeEscSequence(data []rune) (n int, err error) {
 // getNumericArgs beaks apart seq at ';' characters and then tries to convert
 // each piece into an integer. If it fails to convert, def is used.
 func getNumericArgs(seq []rune, def int) (args []int) {
-	for _, arg := range splitParams(seq) {
-		num, err := strconv.Atoi(string(arg))
-		if err != nil {
-			num = def
-		}
-		args = append(args, num)
+	return appendNumericArgs(args, seq, def)
+}
+
+func appendNumericArgs(dst []int, seq []rune, def int) []int {
+	if len(seq) == 0 {
+		return append(dst, def)
 	}
-	return args
+
+	start := 0
+	for i := 0; i <= len(seq); i++ {
+		if i < len(seq) && seq[i] != ';' {
+			continue
+		}
+		dst = append(dst, parseNumericArg(seq[start:i], def))
+		start = i + 1
+	}
+
+	return dst
+}
+
+func parseNumericArg(seq []rune, def int) int {
+	if len(seq) == 0 {
+		return def
+	}
+
+	sign := 1
+	i := 0
+	switch seq[0] {
+	case '-':
+		sign = -1
+		i = 1
+	case '+':
+		i = 1
+	}
+	if i == len(seq) {
+		return def
+	}
+
+	n := 0
+	for ; i < len(seq); i++ {
+		r := seq[i]
+		if r < '0' || r > '9' {
+			return def
+		}
+		n = n*10 + int(r-'0')
+	}
+	return sign * n
 }
 
 func bound[N constraints.Integer](x, minimum, maximum N) N {
@@ -151,10 +189,13 @@ func bound[N constraints.Integer](x, minimum, maximum N) N {
 }
 
 func trimST(seq []rune) []rune {
+	if len(seq) == 0 {
+		return seq
+	}
 	switch {
 	case seq[len(seq)-1] == '\a':
 		return seq[:len(seq)-1]
-	case seq[len(seq)-2] == 0x1b && seq[len(seq)-1] == '\\':
+	case len(seq) >= 2 && seq[len(seq)-2] == 0x1b && seq[len(seq)-1] == '\\':
 		return seq[:len(seq)-2]
 	default:
 		return seq
@@ -205,6 +246,78 @@ func getRGB(args []int) (r, g, b uint8) {
 		r = uint8(args[0])
 	}
 	return
+}
+
+func parsePoint(seq []rune) (pt image.Point, ok bool) {
+	x, n, ok := parseIntPrefix(seq)
+	if !ok || n >= len(seq) || seq[n] != ',' {
+		return image.Point{}, false
+	}
+	y, m, ok := parseIntPrefix(seq[n+1:])
+	if !ok {
+		return image.Point{}, false
+	}
+	if n+1+m != len(seq) {
+		return image.Point{}, false
+	}
+	return image.Pt(x, y), true
+}
+
+func parseRect(seq []rune) (rect image.Rectangle, ok bool) {
+	var n int
+	rect.Min.X, n, ok = parseIntPrefix(seq)
+	if !ok || n >= len(seq) || seq[n] != ',' {
+		return image.Rectangle{}, false
+	}
+	seq = seq[n+1:]
+	rect.Min.Y, n, ok = parseIntPrefix(seq)
+	if !ok {
+		return image.Rectangle{}, false
+	}
+	seq = seq[n:]
+	if len(seq) == 0 || seq[0] != ';' {
+		return image.Rectangle{}, false
+	}
+	seq = seq[1:]
+	rect.Max.X, n, ok = parseIntPrefix(seq)
+	if !ok || n >= len(seq) || seq[n] != ',' {
+		return image.Rectangle{}, false
+	}
+	seq = seq[n+1:]
+	rect.Max.Y, n, ok = parseIntPrefix(seq)
+	if !ok {
+		return image.Rectangle{}, false
+	}
+	if n != len(seq) {
+		return image.Rectangle{}, false
+	}
+	return rect, true
+}
+
+func parseIntPrefix(seq []rune) (value int, consumed int, ok bool) {
+	if len(seq) == 0 {
+		return 0, 0, false
+	}
+	sign := 1
+	switch seq[0] {
+	case '-':
+		sign = -1
+		consumed = 1
+	case '+':
+		consumed = 1
+	}
+	if consumed == len(seq) || seq[consumed] < '0' || seq[consumed] > '9' {
+		return 0, 0, false
+	}
+	for consumed < len(seq) {
+		r := seq[consumed]
+		if r < '0' || r > '9' {
+			break
+		}
+		value = value*10 + int(r-'0')
+		consumed++
+	}
+	return sign * value, consumed, true
 }
 
 func seqString(seq []rune) string {

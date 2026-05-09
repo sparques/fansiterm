@@ -22,6 +22,7 @@ var ConfigDefault = Config{
 	TabSize:             8,
 	StrikethroughHeight: 7,
 	BoldColors:          true,
+	Wraparound:          true,
 }
 
 func NewConfig() Config {

@@ -6,8 +6,6 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
-	_ "image/jpeg"
-	"strconv"
 	"strings"
 
 	"github.com/sparques/fansiterm/tiles"
@@ -29,12 +27,17 @@ func (d *Device) handleFansiSequence(seq []rune) {
 		// Doing nothing seems safe...
 		return
 	}
-	params := splitParams(seq[1:])
+	var params [3][]rune
+	paramCount := splitParamsMax(seq[1:], params[:])
 	switch seq[0] {
 	case 'A', 'a': // A for At(); report color at pixel specified by absolute addressing (A) or relative to cursor (a)
-		fmt.Fprintf(d.Output, "OKAY")
-		var loc image.Point
-		fmt.Sscanf(string(params[0]), "%d,%d", &loc.X, &loc.Y)
+		if paramCount == 0 {
+			return
+		}
+		loc, ok := parsePoint(params[0])
+		if !ok {
+			return
+		}
 		loc = loc.Add(d.Render.bounds.Min)
 		if seq[0] == 'a' {
 			loc = loc.Add(d.cursorPt())
@@ -57,8 +60,9 @@ func (d *Device) handleFansiSequence(seq []rune) {
 			loc        image.Point
 			targetRect image.Rectangle
 		)
-		switch len(params) {
+		switch paramCount {
 		case 0: // nothing
+			return
 		case 1: // just pix data, display at cursor
 			img, err = DecodeImageData(params[0])
 			if err != nil {
@@ -66,25 +70,35 @@ func (d *Device) handleFansiSequence(seq []rune) {
 			}
 			targetRect = img.Bounds().Add(d.cursorPt())
 		case 2: // show at specific pixel offset
-			fmt.Sscanf(string(params[0]), "%d,%d;", &loc.X, &loc.Y)
+			var ok bool
+			loc, ok = parsePoint(params[0])
+			if !ok {
+				return
+			}
 			img, err = DecodeImageData(params[1])
 			if err != nil {
 				return
 			}
 			targetRect = img.Bounds().Add(d.Render.bounds.Min).Add(loc)
 		case 3: // show within a limited area
-			n, _ := fmt.Sscanf(string(seq[1:len(seq)-len(params[2])]), "%d,%d;%d,%d;", &targetRect.Min.X, &targetRect.Min.Y, &targetRect.Max.X, &targetRect.Max.Y)
-			if n != 4 {
+			minPt, ok := parsePoint(params[0])
+			if !ok {
 				return
 			}
+			maxPt, ok := parsePoint(params[1])
+			if !ok {
+				return
+			}
+			rect := image.Rectangle{Min: minPt, Max: maxPt}
 			img, err = DecodeImageData(params[2])
 			if err != nil {
 				return
 			}
-			targetRect = targetRect.Canon().Add(d.Render.bounds.Min)
+			targetRect = rect.Canon().Add(d.Render.bounds.Min)
+		default:
+			return
 		}
 
-		// draw.Draw(d.Render, targetRect, img, image.Point{}, draw.Over)
 		draw.Draw(d.Render, targetRect, img, img.Bounds().Min, draw.Over)
 		x := targetRect.Dx() / d.Render.cell.Dx()
 		if targetRect.Dx()%d.Render.cell.Dx() != 0 {
@@ -97,22 +111,26 @@ func (d *Device) handleFansiSequence(seq []rune) {
 		// The data is serialized binary pixel values, rgb, one byte per channel, base64 encoded.
 		// ESC/Cx,y;<pixdata>ESC\
 		// shift the point referenced in the image so you display a different portion of the image
+		if paramCount == 0 {
+			return
+		}
 		var pt image.Point
-		if len(params) == 2 {
-			n, _ := fmt.Sscanf(string(params[0]), "%d,%d;", &pt.X, &pt.Y)
-			if n != 2 {
+		if paramCount == 2 {
+			var ok bool
+			pt, ok = parsePoint(params[0])
+			if !ok {
 				return
 			}
 		}
 
-		img, err := DecodeImageData(params[len(params)-1])
+		img, err := DecodeImageData(params[paramCount-1])
 		if err == nil {
 			draw.Draw(d.Render, d.Render.cell.Add(d.cursorPt()), img, pt, draw.Over)
+			d.cursor.MoveRel(1, 0)
 			return
 		}
 
-		seq = seq[1:]
-		pixData, err := base64.StdEncoding.DecodeString(string(seq))
+		pixData, err := base64.StdEncoding.DecodeString(string(params[paramCount-1]))
 		if err != nil {
 			return
 		}
@@ -130,7 +148,10 @@ func (d *Device) handleFansiSequence(seq []rune) {
 		// bg color. Must be exactly 32 bytes. Each byte is a hex value nyble.
 		// Bytes are BIG ENDIAN--most significant bit maps to the left most column.
 
-		data := []byte(string(params[0]))
+		if paramCount == 0 {
+			return
+		}
+		data := params[0]
 		cell := &tiles.AlphaCell{}
 
 		// we accept hex digits (32 of them) or base64 (24)
@@ -142,8 +163,11 @@ func (d *Device) handleFansiSequence(seq []rune) {
 			}
 		case 32:
 			for i := range cell.Pix {
-				v, _ := strconv.ParseUint(string(data[i*2:i*2+2]), 16, 8)
-				cell.Pix[i] = uint8(v)
+				v, ok := parseHexByte(data[i*2 : i*2+2])
+				if !ok {
+					return
+				}
+				cell.Pix[i] = v
 			}
 		default:
 			return
@@ -152,7 +176,7 @@ func (d *Device) handleFansiSequence(seq []rune) {
 
 		//increment cursor as though we just rendered a regular tile
 		d.cursor.col++
-		if d.Config.Wraparound {
+		if !d.Config.Wraparound {
 			d.cursor.col = bound(d.cursor.col, 0, d.cols-1)
 		}
 
@@ -444,7 +468,7 @@ func (d *Device) handleFansiSequence(seq []rune) {
 		default:
 		}
 	case 'u': // u for user/unicode ; save an image and map it to a unicode code point
-		if len(params) != 2 {
+		if paramCount != 2 {
 			return
 		}
 		img, err := DecodeImageData(params[1])
@@ -458,7 +482,7 @@ func (d *Device) handleFansiSequence(seq []rune) {
 		}
 
 		// TODO: convert to native pixel format using NewImage
-		rn, _ := strconv.Atoi(string(params[0]))
+		rn := parseNumericArg(params[0], 0)
 
 		d.Render.User[rune(rn)] = img
 	case 'V': // V for vectorScroll
@@ -474,4 +498,55 @@ func (d *Device) handleFansiSequence(seq []rune) {
 		d.Render.VectorScroll(region, vector)
 	}
 
+}
+
+func splitParamsMax(data []rune, dst [][]rune) int {
+	if len(dst) == 0 {
+		return 0
+	}
+
+	prev := 0
+	n := 0
+	for i := range data {
+		if data[i] != ';' {
+			continue
+		}
+		if n == len(dst)-1 {
+			dst[n] = data[prev:]
+			return n + 1
+		}
+		dst[n] = data[prev:i]
+		n++
+		prev = i + 1
+	}
+	dst[n] = data[prev:]
+	return n + 1
+}
+
+func parseHexByte(data []rune) (uint8, bool) {
+	if len(data) != 2 {
+		return 0, false
+	}
+	hi, ok := hexNibble(data[0])
+	if !ok {
+		return 0, false
+	}
+	lo, ok := hexNibble(data[1])
+	if !ok {
+		return 0, false
+	}
+	return hi<<4 | lo, true
+}
+
+func hexNibble(r rune) (uint8, bool) {
+	switch {
+	case r >= '0' && r <= '9':
+		return uint8(r - '0'), true
+	case r >= 'a' && r <= 'f':
+		return uint8(r-'a') + 10, true
+	case r >= 'A' && r <= 'F':
+		return uint8(r-'A') + 10, true
+	default:
+		return 0, false
+	}
 }

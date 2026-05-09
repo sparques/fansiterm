@@ -10,7 +10,8 @@ func (d *Device) handleCSISequence(seq []rune) {
 	if len(seq) == 0 {
 		return
 	}
-	args := getNumericArgs(seq[:len(seq)-1], 1)
+	var argBuf [32]int
+	args := appendNumericArgs(argBuf[:0], seq[:len(seq)-1], 1)
 	// last byte of seq tells us what function we're doing
 	switch seq[len(seq)-1] {
 	case '@': // // Insert Characters. one option numerica arg, default 1
@@ -47,7 +48,7 @@ func (d *Device) handleCSISequence(seq []rune) {
 
 		d.cursor.MoveAbs(m-1, n-1)
 	case 'J': // Clears part of the screen. If n is 0 (or missing), clear from cursor to end of screen. If n is 1, clear from cursor to beginning of the screen. If n is 2, clear entire screen (and moves cursor to upper left on DOS ANSI.SYS). If n is 3, clear entire screen and delete all lines saved in the scrollback buffer (this feature was added for xterm and is supported by other terminal applications).
-		args = getNumericArgs(seq[:len(seq)-1], 0)
+		args = appendNumericArgs(argBuf[:0], seq[:len(seq)-1], 0)
 		switch args[0] {
 		case 0:
 			// clear from cursor to EOL
@@ -65,7 +66,7 @@ func (d *Device) handleCSISequence(seq []rune) {
 		}
 
 	case 'K': // Erases part of the line. If n is 0 (or missing), clear from cursor to the end of the line. If n is 1, clear from cursor to beginning of the line. If n is 2, clear entire line. Cursor position does not change.
-		args = getNumericArgs(seq[:len(seq)-1], 0)
+		args = appendNumericArgs(argBuf[:0], seq[:len(seq)-1], 0)
 		switch args[0] {
 		case 0:
 			// clear from cursor to EOL
@@ -114,10 +115,10 @@ func (d *Device) handleCSISequence(seq []rune) {
 		// Lie and say we're a vt100
 		fmt.Fprintf(d.Output, "\x1b[?1;2c")
 	case 'd': // CSI n d: Mover cursor to line n
-		args = getNumericArgs(seq[:len(seq)-1], 1)
+		args = appendNumericArgs(argBuf[:0], seq[:len(seq)-1], 1)
 		d.cursor.row = bound(args[0]-1, 0, d.rows)
 	case 'm': // CoLoRs!1!! AKA SGR (Select Graphic Rendition)
-		args := getNumericArgs(seq[:len(seq)-1], 0)
+		args := appendNumericArgs(argBuf[:0], seq[:len(seq)-1], 0)
 		for i := 0; i < len(args); i++ {
 			switch args[i] {
 			case 0:
@@ -210,8 +211,11 @@ func (d *Device) handleCSISequence(seq []rune) {
 					continue
 				}
 				if args[i+1] == 5 {
+					if i+2 >= len(args) {
+						break
+					}
 					// prevent going out of range
-					args[i] = args[i] % 256
+					args[i+2] = args[i+2] % 256
 					if args[i] == 38 {
 						d.attr.Fg = Color256(args[i+2])
 					} else {
@@ -222,6 +226,9 @@ func (d *Device) handleCSISequence(seq []rune) {
 				}
 				if args[i+1] != 2 {
 					continue
+				}
+				if i+4 >= len(args) {
+					break
 				}
 				i += 2
 				// can proceed
@@ -255,7 +262,7 @@ func (d *Device) handleCSISequence(seq []rune) {
 		if seq[0] != '?' || len(seq) < 2 {
 			return
 		}
-		args := getNumericArgs(seq[1:len(seq)-1], 0)
+		args := appendNumericArgs(argBuf[:0], seq[1:len(seq)-1], 0)
 		var set bool
 		if seq[len(seq)-1] == 'h' {
 			set = true
@@ -273,7 +280,7 @@ func (d *Device) handleCSISequence(seq []rune) {
 			// my god, getting end of line and end of terminal line wrapping
 			// working the first place was hard enough.
 			// wraparound is the process of if a line over flows (reaches EOL) it should continue onto the next line. With wrap around disabled, once the cursor gets to the end of the line, it no longer advances.
-			d.Config.Wraparound = !set
+			d.Config.Wraparound = set
 			d.configChange()
 		case 9: //legacy mouse support
 			d.Config.MouseEvents = 9
