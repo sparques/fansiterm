@@ -123,3 +123,63 @@ func TestAlphaCellTileSetPackedSparseLookup(t *testing.T) {
 		t.Fatalf("packed sparse glyph[0] = %#x, want %#x", glyph.Pix[0], 0x55)
 	}
 }
+
+func TestAlpha1TileSetPackedDenseLookup(t *testing.T) {
+	ats := &Alpha1TileSet{
+		Rectangle: image.Rect(0, 0, 9, 2),
+		First:     'a',
+		Count:     2,
+		Index:     []uint16{1, 2},
+		Pix: []uint8{
+			0x80, 0x80,
+			0x40, 0x00,
+			0x20, 0x00,
+			0x10, 0x80,
+		},
+	}
+
+	glyph := ats.Glyph('b')
+	if glyph == nil {
+		t.Fatalf("expected packed glyph lookup to succeed")
+	}
+	if glyph.Stride != 2 {
+		t.Fatalf("glyph stride = %d, want 2", glyph.Stride)
+	}
+	if !glyph.Bounds().Eq(image.Rect(0, 0, 9, 2)) {
+		t.Fatalf("glyph bounds = %v, want %v", glyph.Bounds(), image.Rect(0, 0, 9, 2))
+	}
+	if got := glyph.Pix; len(got) != 4 || got[0] != 0x20 || got[3] != 0x80 {
+		t.Fatalf("packed glyph = %#v, want second 4-byte glyph", got)
+	}
+}
+
+func TestAlpha1TileSetDrawTile(t *testing.T) {
+	ats := &Alpha1TileSet{
+		Rectangle: image.Rect(0, 0, 9, 2),
+		First:     'x',
+		Count:     1,
+		Index:     []uint16{1},
+		Pix: []uint8{
+			0x80, 0x80,
+			0x40, 0x00,
+		},
+	}
+	dst := image.NewRGBA(image.Rect(0, 0, 9, 2))
+	fg := color.RGBA{R: 0xFF, A: 0xFF}
+	bg := color.RGBA{B: 0xFF, A: 0xFF}
+
+	ats.DrawTile('x', dst, image.Point{}, fg, bg)
+
+	for y := 0; y < 2; y++ {
+		for x := 0; x < 9; x++ {
+			wantFG := (y == 0 && (x == 0 || x == 8)) || (y == 1 && x == 1)
+			got := dst.RGBAAt(x, y)
+			if wantFG && got != fg {
+				t.Fatalf("pixel (%d,%d) = %#v, want fg", x, y, got)
+			}
+			if !wantFG && got != bg {
+				t.Fatalf("pixel (%d,%d) = %#v, want bg", x, y, got)
+			}
+		}
+	}
+}
