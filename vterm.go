@@ -107,12 +107,20 @@ type Attr struct {
 }
 
 // New initializes a new terminal device with the specified dimensions and optional draw.Image buffer.
-// If buf is nil, a default in-memory RGBA buffer is allocated. The terminal's character size is fixed.
+// If buf is nil, a default in-memory RGBA buffer is allocated.
 func New(cols, rows int, buf draw.Image) *Device {
-	// fansiterm v1.x is strictly a tile-based terminal emulator. Eventually
-	// support for different tile sizes would be nice. The fansiterm backend
-	// and all the front-ends I've written all assume an 8x16 tile
-	cell := image.Rect(0, 0, 8, 16)
+	charSet := tiles.NewMultiTileSet(sweet16.Regular8x16, drawing.TileSet)
+	d := NewWithCharSet(cols, rows, buf, charSet)
+	d.Render.BoldCharSet = sweet16.Bold8x16
+	return d
+}
+
+// NewWithCharSet initializes a terminal using charSet as the primary tile set.
+func NewWithCharSet(cols, rows int, buf draw.Image, charSet tiles.Tiler) *Device {
+	if charSet == nil {
+		charSet = tiles.NewMultiTileSet(sweet16.Regular8x16, drawing.TileSet)
+	}
+	cell := tileCell(charSet)
 
 	if buf == nil {
 		buf = image.NewRGBA(image.Rect(0, 0, cols*cell.Max.X, rows*cell.Max.Y))
@@ -133,7 +141,6 @@ func New(cols, rows int, buf draw.Image) *Device {
 	// shift around
 	bounds = bounds.Add(offset)
 
-	charSet := tiles.NewMultiTileSet(sweet16.Regular8x16, drawing.TileSet)
 	altCharSet := altCharsetViaUnicode(charSet)
 
 	d := &Device{
@@ -147,7 +154,7 @@ func New(cols, rows int, buf draw.Image) *Device {
 			bounds:        bounds,
 			AltCharSet:    altCharSet,
 			CharSet:       charSet,
-			BoldCharSet:   sweet16.Bold8x16,
+			BoldCharSet:   charSet,
 			ItalicCharSet: &tiles.Italics{Tiler: charSet},
 			cell:          cell,
 			cursorFunc:    blockRect,
@@ -182,8 +189,16 @@ func New(cols, rows int, buf draw.Image) *Device {
 
 // NewAtResolution returns a new Device sized to fit a resolution (x,y), centering the terminal.
 func NewAtResolution(x, y int, buf draw.Image) *Device {
+	charSet := tiles.NewMultiTileSet(sweet16.Regular8x16, drawing.TileSet)
+	d := NewAtResolutionWithCharSet(x, y, buf, charSet)
+	d.Render.BoldCharSet = sweet16.Bold8x16
+	return d
+}
+
+// NewAtResolutionWithCharSet returns a new Device sized to fit a resolution (x,y), centering the terminal.
+func NewAtResolutionWithCharSet(x, y int, buf draw.Image, charSet tiles.Tiler) *Device {
 	// TODO: This is a crappy way of figuring out what font we're using. Do something else.
-	d := New(1, 1, nil)
+	d := NewWithCharSet(1, 1, nil, charSet)
 	// use d.Render.cell to figure out rows and cols; integer division will round down
 	// which is what we want
 	cols := x / d.Render.cell.Max.X
@@ -193,7 +208,7 @@ func NewAtResolution(x, y int, buf draw.Image) *Device {
 		buf = image.NewRGBA(image.Rect(0, 0, x, y))
 	}
 
-	return New(cols, rows, buf)
+	return NewWithCharSet(cols, rows, buf, charSet)
 }
 
 // NewWithBuf uses buf as its target. NewWithBuf() will panic if called against a
@@ -210,15 +225,22 @@ func NewAtResolution(x, y int, buf draw.Image) *Device {
 // image.Rect(0,7,240,135), but I find supplying the actual dimensions and then
 // adding an offset to be clearer.
 func NewWithBuf(buf draw.Image) *Device {
+	charSet := tiles.NewMultiTileSet(sweet16.Regular8x16, drawing.TileSet)
+	d := NewWithBufAndCharSet(buf, charSet)
+	d.Render.BoldCharSet = sweet16.Bold8x16
+	return d
+}
+
+func NewWithBufAndCharSet(buf draw.Image, charSet tiles.Tiler) *Device {
 	if buf == nil {
 		panic("NewWithBuf must be called with non-nil buf")
 	}
 
-	// TODO: How do I dynamically do this in a way that makes sense?
-	cols := buf.Bounds().Dx() / 8
-	rows := buf.Bounds().Dy() / 16
+	cell := tileCell(charSet)
+	cols := buf.Bounds().Dx() / cell.Dx()
+	rows := buf.Bounds().Dy() / cell.Dy()
 
-	return New(cols, rows, buf)
+	return NewWithCharSet(cols, rows, buf, charSet)
 }
 
 func (d *Device) UseBuf(buf draw.Image) {
@@ -229,8 +251,8 @@ func (d *Device) UseBuf(buf draw.Image) {
 
 func (d *Device) useBuf(buf draw.Image) {
 	cell := d.Render.cell
-	d.cols = buf.Bounds().Dx() / 8
-	d.rows = buf.Bounds().Dy() / 16
+	d.cols = buf.Bounds().Dx() / cell.Dx()
+	d.rows = buf.Bounds().Dy() / cell.Dy()
 
 	// save the old buf
 	origBuf := copyImage(d.Render.Image)
@@ -308,6 +330,21 @@ func (d *Device) useBuf(buf draw.Image) {
 	d.Render.Fill(d.Render.Image.Bounds(), d.attrDefault.Bg)
 	draw.Draw(d.Render.Image, origBuf.Bounds(), origBuf, origBuf.Bounds().Min, draw.Src)
 
+}
+
+func tileCell(tileSet tiles.Tiler) image.Rectangle {
+	if tileSet == nil {
+		return image.Rect(0, 0, 8, 16)
+	}
+	for _, r := range []rune{' ', 'M', '0'} {
+		if tile, ok := tileSet.GetTile(r); ok {
+			bounds := tile.Bounds()
+			if !bounds.Empty() {
+				return image.Rect(0, 0, bounds.Dx(), bounds.Dy())
+			}
+		}
+	}
+	return image.Rect(0, 0, 8, 16)
 }
 
 func (d *Device) Reset() {
