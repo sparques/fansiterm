@@ -13,7 +13,7 @@ import (
 
 func Test_RenderScreenshot(t *testing.T) {
 	// Screen is 240x135px; so if we're using an 8x16 font that means 40 columns and nearly 8.5 rows. We'll round down to 8 rows and use the extra 7 pixels for things like the battery meter.
-	term := NewAtResolution(240, 135, nil)
+	term := NewAtResolution(240, 135, nil, testCharSet())
 
 	term.Write([]byte(" \x1b[34m\x0e(\x0f\x1b[44;97;1mFANSITERM™\x0e\x1b[34;41;22m)\x0f \x1b[37mTX v1.0\x1b[40;31m\x0e>\x0f\x1b[m\n\n"))
 	term.Write([]byte("  Freq:\t\t\x0e{\x1b[7m433\x0f MHz\x0e\x1b[27m}\x0f\n\n"))

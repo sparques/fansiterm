@@ -14,8 +14,6 @@ import (
 	"time"
 
 	"github.com/sparques/fansiterm/tiles"
-	"github.com/sparques/fansiterm/tiles/drawing"
-	"github.com/sparques/fansiterm/tiles/sweet16"
 	"github.com/sparques/fansiterm/xform"
 	"github.com/sparques/gfx"
 )
@@ -106,19 +104,17 @@ type Attr struct {
 	Bg              Color
 }
 
-// New initializes a new terminal device with the specified dimensions and optional draw.Image buffer.
+// New initializes a new terminal device with the specified dimensions, optional
+// draw.Image buffer, and required character set.
 // If buf is nil, a default in-memory RGBA buffer is allocated.
-func New(cols, rows int, buf draw.Image) *Device {
-	charSet := tiles.NewMultiTileSet(sweet16.Regular8x16, drawing.TileSet)
-	d := NewWithCharSet(cols, rows, buf, charSet)
-	d.Render.BoldCharSet = sweet16.Bold8x16
-	return d
+func New(cols, rows int, buf draw.Image, charSet tiles.Tiler) *Device {
+	return NewWithCharSet(cols, rows, buf, charSet)
 }
 
 // NewWithCharSet initializes a terminal using charSet as the primary tile set.
 func NewWithCharSet(cols, rows int, buf draw.Image, charSet tiles.Tiler) *Device {
 	if charSet == nil {
-		charSet = tiles.NewMultiTileSet(sweet16.Regular8x16, drawing.TileSet)
+		panic("fansiterm: charSet must be non-nil")
 	}
 	cell := tileCell(charSet)
 
@@ -187,12 +183,10 @@ func NewWithCharSet(cols, rows int, buf draw.Image, charSet tiles.Tiler) *Device
 	return d
 }
 
-// NewAtResolution returns a new Device sized to fit a resolution (x,y), centering the terminal.
-func NewAtResolution(x, y int, buf draw.Image) *Device {
-	charSet := tiles.NewMultiTileSet(sweet16.Regular8x16, drawing.TileSet)
-	d := NewAtResolutionWithCharSet(x, y, buf, charSet)
-	d.Render.BoldCharSet = sweet16.Bold8x16
-	return d
+// NewAtResolution returns a new Device sized to fit a resolution (x,y),
+// centering the terminal.
+func NewAtResolution(x, y int, buf draw.Image, charSet tiles.Tiler) *Device {
+	return NewAtResolutionWithCharSet(x, y, buf, charSet)
 }
 
 // NewAtResolutionWithCharSet returns a new Device sized to fit a resolution (x,y), centering the terminal.
@@ -211,29 +205,29 @@ func NewAtResolutionWithCharSet(x, y int, buf draw.Image, charSet tiles.Tiler) *
 	return NewWithCharSet(cols, rows, buf, charSet)
 }
 
-// NewWithBuf uses buf as its target. NewWithBuf() will panic if called against a
-// nil buf. If using fansiterm with backing hardware, NewWithBuf is likely the way
-// you want to instantiate fansiterm.
-// If you have buf providing an interface to a 240x135 screen, using the default
-// 8x16 tiles, you can have an 40x8 cell terminal, with 7 rows of pixels leftover.
+// NewWithBuf uses buf as its target. NewWithBuf() will panic if called against
+// a nil buf or nil charSet. If using fansiterm with backing hardware, NewWithBuf
+// is likely the way you want to instantiate fansiterm.
+// If you have buf providing an interface to a 240x135 screen and pass an 8x16
+// character set, you can have an 40x8 cell terminal, with 7 rows of pixels leftover.
 // If you want to have those extra 7 rows above the rendered terminal, you can do
 // so like this:
 //
-// term := NewWithBuf(xform.SubImage(buf,image.Rect(0,0,240,128).Add(0,7)))
+// term := NewWithBuf(xform.SubImage(buf,image.Rect(0,0,240,128).Add(0,7)), charSet)
 //
 // Note: you can skip the Add() and just define your rectangle as
 // image.Rect(0,7,240,135), but I find supplying the actual dimensions and then
 // adding an offset to be clearer.
-func NewWithBuf(buf draw.Image) *Device {
-	charSet := tiles.NewMultiTileSet(sweet16.Regular8x16, drawing.TileSet)
-	d := NewWithBufAndCharSet(buf, charSet)
-	d.Render.BoldCharSet = sweet16.Bold8x16
-	return d
+func NewWithBuf(buf draw.Image, charSet tiles.Tiler) *Device {
+	return NewWithBufAndCharSet(buf, charSet)
 }
 
 func NewWithBufAndCharSet(buf draw.Image, charSet tiles.Tiler) *Device {
 	if buf == nil {
 		panic("NewWithBuf must be called with non-nil buf")
+	}
+	if charSet == nil {
+		panic("fansiterm: charSet must be non-nil")
 	}
 
 	cell := tileCell(charSet)
