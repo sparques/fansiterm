@@ -1,7 +1,9 @@
 package cardputerfont
 
-import "image"
-import "github.com/sparques/fansiterm/tiles"
+import (
+	"github.com/sparques/fansiterm/tiles"
+	"image"
+)
 
 var Regular6x8 = &tiles.Alpha1TileSet{
 	Rectangle: image.Rect(0, 0, 6, 9),

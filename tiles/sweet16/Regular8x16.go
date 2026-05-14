@@ -1,7 +1,9 @@
 package sweet16
 
-import "image"
-import "github.com/sparques/fansiterm/tiles"
+import (
+	"github.com/sparques/fansiterm/tiles"
+	"image"
+)
 
 var Regular8x16 = &tiles.AlphaCellTileSet{
 	Rectangle: image.Rect(0, 0, 8, 16),

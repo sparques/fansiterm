@@ -1,7 +1,9 @@
 package juliamono
 
-import "image"
-import "github.com/sparques/fansiterm/tiles"
+import (
+	"github.com/sparques/fansiterm/tiles"
+	"image"
+)
 
 var Regular8x16 = &tiles.FontTileSet{
 	Rectangle: image.Rect(0, 0, 8, 16),

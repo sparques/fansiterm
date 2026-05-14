@@ -5,7 +5,6 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
-	"maps"
 	"slices"
 )
 
@@ -17,10 +16,6 @@ type RuneIndex struct {
 
 type FontTileSet struct {
 	image.Rectangle
-
-	// Glyphs is retained for mutable / compatibility-oriented construction.
-	// Generated sets should prefer the packed fields below.
-	Glyphs map[rune][]uint8
 
 	// Packed dense/sparse storage for generated sets.
 	First  rune
@@ -34,19 +29,20 @@ type FontTileSet struct {
 }
 
 func NewFontTileSet() *FontTileSet {
-	return &FontTileSet{
-		Glyphs: make(map[rune][]uint8),
-	}
+	return &FontTileSet{}
 }
 
-// Merge copies code points / glyphs into fts, displacing any overlapping code points.
+// Merge copies code points / glyphs into fts, displacing any overlapping code
+// points.
 func (fts *FontTileSet) Merge(src *FontTileSet) {
 	if src == nil {
 		return
 	}
-	fts.materializeGlyphMap()
-	srcMap := src.glyphMap()
-	maps.Copy(fts.Glyphs, srcMap)
+	for _, r := range src.Runes() {
+		if glyph := src.Glyph(r); glyph != nil {
+			fts.SetTile(r, glyph)
+		}
+	}
 }
 
 func (fts *FontTileSet) Glyph(r rune) *image.Alpha {
@@ -69,9 +65,65 @@ func (fts *FontTileSet) GetTile(r rune) (image.Image, bool) {
 }
 
 func (fts *FontTileSet) SetTile(r rune, img image.Image) {
-	fts.materializeGlyphMap()
-	fts.Glyphs[r] = extractAlpha(img)
-	fts.clearPacked()
+	if img == nil {
+		return
+	}
+	if fts.Rectangle.Empty() {
+		bounds := img.Bounds()
+		fts.Rectangle = image.Rect(0, 0, bounds.Dx(), bounds.Dy())
+	}
+	pix := extractAlphaCell(img, fts.Dx(), fts.Dy())
+	if len(pix) == 0 {
+		return
+	}
+	stride := fts.glyphArea()
+
+	// does it already exist? If so we can just displace it.
+	if ord, ok := fts.lookupOrdinal(r); ok {
+		start := ord * stride
+		end := start + stride
+		if start >= 0 && end <= len(fts.Pix) {
+			copy(fts.Pix[start:end], pix)
+		}
+		return
+	}
+
+	// doesn't already exist, must add new entry
+
+	// Are we a sparse setup? That's pretty easy
+	if len(fts.Sparse) > 0 {
+		fts.appendSparse(r, pix)
+		return
+	}
+
+	// this is the complicated part... if the rune is in order, we can just append it, otherwise
+	// we have to convert from simple Index to Sparse
+	if len(fts.Index) == 0 && fts.Count == 0 {
+		fts.First = r
+		fts.Count = 1
+		fts.Index = []uint16{1}
+		fts.Pix = append(fts.Pix, pix...)
+		return
+	}
+
+	if len(fts.Index) > 0 {
+		i := int(r - fts.First)
+		if i == len(fts.Index) {
+			fts.Index = append(fts.Index, uint16(fts.Count+1))
+			fts.Count++
+			fts.Pix = append(fts.Pix, pix...)
+			return
+		}
+		if 0 <= i && i < len(fts.Index) && fts.Index[i] == 0 {
+			fts.Index[i] = uint16(fts.Count + 1)
+			fts.Count++
+			fts.Pix = append(fts.Pix, pix...)
+			return
+		}
+	}
+
+	fts.convertToSparse()
+	fts.appendSparse(r, pix)
 }
 
 func (fts *FontTileSet) DrawTile(r rune, dst draw.Image, pt image.Point, fg color.Color, bg color.Color) {
@@ -91,23 +143,12 @@ func (fts *FontTileSet) Len() int {
 	switch {
 	case fts.Count != 0:
 		return fts.Count
-	case fts.Glyphs != nil:
-		return len(fts.Glyphs)
 	default:
 		return 0
 	}
 }
 
 func (fts *FontTileSet) Runes() []rune {
-	if fts.Glyphs != nil {
-		rr := make([]rune, 0, len(fts.Glyphs))
-		for r := range fts.Glyphs {
-			rr = append(rr, r)
-		}
-		slices.Sort(rr)
-		return rr
-	}
-
 	rr := make([]rune, 0, fts.Len())
 	if len(fts.Index) > 0 {
 		for i, ord := range fts.Index {
@@ -188,9 +229,6 @@ func (ac *AlphaCell) ColorModel() color.Model {
 type AlphaCellTileSet struct {
 	image.Rectangle
 
-	// Glyphs is retained for mutable / compatibility-oriented construction.
-	Glyphs map[rune][16]uint8
-
 	First  rune
 	Count  int
 	Index  []uint16
@@ -220,7 +258,6 @@ type Alpha1TileSet struct {
 func NewAlphaCellTileSet() *AlphaCellTileSet {
 	return &AlphaCellTileSet{
 		Rectangle: image.Rect(0, 0, 8, 16),
-		Glyphs:    make(map[rune][16]uint8),
 	}
 }
 
@@ -247,6 +284,55 @@ func (ats *AlphaCellTileSet) GetTile(r rune) (image.Image, bool) {
 	return glyph, true
 }
 
+func (ats *AlphaCellTileSet) SetTile(r rune, img image.Image) {
+	if img == nil {
+		return
+	}
+	if ats.Rectangle.Empty() {
+		ats.Rectangle = image.Rect(0, 0, 8, 16)
+	}
+
+	pix := extractAlphaCellBits(img)
+	if ord, ok := ats.lookupOrdinal(r); ok {
+		if ord < len(ats.Cells) {
+			ats.Cells[ord] = pix
+		}
+		return
+	}
+
+	if len(ats.Sparse) > 0 {
+		ats.appendSparse(r, pix)
+		return
+	}
+
+	if len(ats.Index) == 0 && ats.Count == 0 {
+		ats.First = r
+		ats.Count = 1
+		ats.Index = []uint16{1}
+		ats.Cells = append(ats.Cells, pix)
+		return
+	}
+
+	if len(ats.Index) > 0 {
+		i := int(r - ats.First)
+		if i == len(ats.Index) {
+			ats.Index = append(ats.Index, uint16(ats.Count+1))
+			ats.Count++
+			ats.Cells = append(ats.Cells, pix)
+			return
+		}
+		if 0 <= i && i < len(ats.Index) && ats.Index[i] == 0 {
+			ats.Index[i] = uint16(ats.Count + 1)
+			ats.Count++
+			ats.Cells = append(ats.Cells, pix)
+			return
+		}
+	}
+
+	ats.convertToSparse()
+	ats.appendSparse(r, pix)
+}
+
 func (ats *Alpha1TileSet) Glyph(r rune) *Alpha1 {
 	pix, ok := ats.lookupGlyph(r)
 	if !ok {
@@ -264,6 +350,62 @@ func (ats *Alpha1TileSet) GetTile(r rune) (image.Image, bool) {
 		return nil, false
 	}
 	return glyph, true
+}
+
+func (ats *Alpha1TileSet) SetTile(r rune, img image.Image) {
+	if img == nil {
+		return
+	}
+	if ats.Rectangle.Empty() {
+		bounds := img.Bounds()
+		ats.Rectangle = image.Rect(0, 0, bounds.Dx(), bounds.Dy())
+	}
+	pix := extractAlpha1Bits(img, ats.Dx(), ats.Dy())
+	if len(pix) == 0 {
+		return
+	}
+	stride := ats.glyphStride()
+
+	if ord, ok := ats.lookupOrdinal(r); ok {
+		start := ord * stride
+		end := start + stride
+		if start >= 0 && end <= len(ats.Pix) {
+			copy(ats.Pix[start:end], pix)
+		}
+		return
+	}
+
+	if len(ats.Sparse) > 0 {
+		ats.appendSparse(r, pix)
+		return
+	}
+
+	if len(ats.Index) == 0 && ats.Count == 0 {
+		ats.First = r
+		ats.Count = 1
+		ats.Index = []uint16{1}
+		ats.Pix = append(ats.Pix, pix...)
+		return
+	}
+
+	if len(ats.Index) > 0 {
+		i := int(r - ats.First)
+		if i == len(ats.Index) {
+			ats.Index = append(ats.Index, uint16(ats.Count+1))
+			ats.Count++
+			ats.Pix = append(ats.Pix, pix...)
+			return
+		}
+		if 0 <= i && i < len(ats.Index) && ats.Index[i] == 0 {
+			ats.Index[i] = uint16(ats.Count + 1)
+			ats.Count++
+			ats.Pix = append(ats.Pix, pix...)
+			return
+		}
+	}
+
+	ats.convertToSparse()
+	ats.appendSparse(r, pix)
 }
 
 func (ats *AlphaCellTileSet) DrawTile(r rune, dst draw.Image, pt image.Point, fg color.Color, bg color.Color) {
@@ -296,23 +438,12 @@ func (ats *AlphaCellTileSet) Len() int {
 	switch {
 	case ats.Count != 0:
 		return ats.Count
-	case ats.Glyphs != nil:
-		return len(ats.Glyphs)
 	default:
 		return 0
 	}
 }
 
 func (ats *AlphaCellTileSet) Runes() []rune {
-	if ats.Glyphs != nil {
-		rr := make([]rune, 0, len(ats.Glyphs))
-		for r := range ats.Glyphs {
-			rr = append(rr, r)
-		}
-		slices.Sort(rr)
-		return rr
-	}
-
 	rr := make([]rune, 0, ats.Len())
 	if len(ats.Index) > 0 {
 		for i, ord := range ats.Index {
@@ -400,34 +531,76 @@ func drawAlpha1Pixels(dst draw.Image, pt image.Point, pix []uint8, width int, he
 	}
 }
 
-func extractAlpha(img image.Image) []uint8 {
-	bounds := img.Bounds()
-	width, height := bounds.Dx(), bounds.Dy()
+func extractAlphaCell(img image.Image, width int, height int) []uint8 {
 	if width <= 0 || height <= 0 {
 		return nil
 	}
 
-	if alphaImg, ok := img.(*image.Alpha); ok {
-		if alphaImg.Rect.Eq(bounds) && alphaImg.Stride == width && len(alphaImg.Pix) == width*height {
-			return alphaImg.Pix
-		}
+	bounds := img.Bounds()
+	pix := make([]uint8, width*height)
+	maxY := min(height, bounds.Dy())
+	maxX := min(width, bounds.Dx())
+	if maxX <= 0 || maxY <= 0 {
+		return pix
+	}
 
-		pix := make([]uint8, width*height)
-		for y := 0; y < height; y++ {
+	if alphaImg, ok := img.(*image.Alpha); ok {
+		for y := 0; y < maxY; y++ {
 			src := alphaImg.PixOffset(bounds.Min.X, bounds.Min.Y+y)
 			dst := y * width
-			copy(pix[dst:dst+width], alphaImg.Pix[src:src+width])
+			copy(pix[dst:dst+maxX], alphaImg.Pix[src:src+maxX])
 		}
 		return pix
 	}
 
-	pix := make([]uint8, width*height)
-	for y := 0; y < height; y++ {
+	for y := 0; y < maxY; y++ {
 		srcY := bounds.Min.Y + y
 		row := y * width
-		for x := 0; x < width; x++ {
+		for x := 0; x < maxX; x++ {
 			_, _, _, alpha := img.At(bounds.Min.X+x, srcY).RGBA()
 			pix[row+x] = uint8(alpha / 0x101)
+		}
+	}
+	return pix
+}
+
+func extractAlphaCellBits(img image.Image) [16]uint8 {
+	var pix [16]uint8
+	if img == nil {
+		return pix
+	}
+
+	bounds := img.Bounds()
+	maxY := min(len(pix), bounds.Dy())
+	maxX := min(8, bounds.Dx())
+	for y := 0; y < maxY; y++ {
+		srcY := bounds.Min.Y + y
+		for x := 0; x < maxX; x++ {
+			if BitAlphaModel.Convert(img.At(bounds.Min.X+x, srcY)).(BitAlpha) {
+				pix[y] |= 0x80 >> x
+			}
+		}
+	}
+	return pix
+}
+
+func extractAlpha1Bits(img image.Image, width int, height int) []uint8 {
+	stride := bytesPerRow(width)
+	if stride <= 0 || height <= 0 {
+		return nil
+	}
+
+	bounds := img.Bounds()
+	pix := make([]uint8, stride*height)
+	maxY := min(height, bounds.Dy())
+	maxX := min(width, bounds.Dx())
+	for y := 0; y < maxY; y++ {
+		srcY := bounds.Min.Y + y
+		row := y * stride
+		for x := 0; x < maxX; x++ {
+			if BitAlphaModel.Convert(img.At(bounds.Min.X+x, srcY)).(BitAlpha) {
+				pix[row+x/8] |= 0x80 >> (x % 8)
+			}
 		}
 	}
 	return pix
@@ -446,11 +619,7 @@ func (fts *FontTileSet) lookupGlyph(r rune) ([]uint8, bool) {
 			return fts.Pix[start:end], true
 		}
 	}
-	if fts.Glyphs == nil {
-		return nil, false
-	}
-	pix, ok := fts.Glyphs[r]
-	return pix, ok
+	return nil, false
 }
 
 func (fts *FontTileSet) lookupOrdinal(r rune) (int, bool) {
@@ -473,33 +642,42 @@ func (fts *FontTileSet) lookupOrdinal(r rune) (int, bool) {
 	return 0, false
 }
 
-func (fts *FontTileSet) glyphMap() map[rune][]uint8 {
-	if fts.Glyphs != nil {
-		return fts.Glyphs
+func (fts *FontTileSet) appendSparse(r rune, pix []uint8) {
+	fts.Count++
+	fts.Sparse = append(fts.Sparse, RuneIndex{Rune: r, Index: uint16(fts.Count)})
+	fts.Pix = append(fts.Pix, pix...)
+	slices.SortFunc(fts.Sparse, func(a, b RuneIndex) int {
+		return cmp.Compare(a.Rune, b.Rune)
+	})
+}
+
+func (fts *FontTileSet) convertToSparse() {
+	if len(fts.Sparse) > 0 {
+		return
 	}
-	ret := make(map[rune][]uint8, fts.Len())
-	for _, r := range fts.Runes() {
-		if pix, ok := fts.lookupGlyph(r); ok {
-			buf := make([]byte, len(pix))
-			copy(buf, pix)
-			ret[r] = buf
+	if len(fts.Index) > 0 {
+		fts.Sparse = make([]RuneIndex, 0, fts.Count+1)
+		for i, ord := range fts.Index {
+			if ord != 0 {
+				fts.Sparse = append(fts.Sparse, RuneIndex{
+					Rune:  fts.First + rune(i),
+					Index: ord,
+				})
+			}
 		}
+		fts.Index = nil
+		fts.First = 0
+		return
 	}
-	return ret
-}
 
-func (fts *FontTileSet) materializeGlyphMap() {
-	if fts.Glyphs == nil {
-		fts.Glyphs = fts.glyphMap()
+	fts.Sparse = make([]RuneIndex, 0, fts.Count+1)
+	for i := 0; i < fts.Count; i++ {
+		fts.Sparse = append(fts.Sparse, RuneIndex{
+			Rune:  fts.First + rune(i),
+			Index: uint16(i + 1),
+		})
 	}
-}
-
-func (fts *FontTileSet) clearPacked() {
 	fts.First = 0
-	fts.Count = 0
-	fts.Index = nil
-	fts.Sparse = nil
-	fts.Pix = nil
 }
 
 func (ats *Alpha1TileSet) glyphStride() int {
@@ -538,15 +716,49 @@ func (ats *Alpha1TileSet) lookupOrdinal(r rune) (int, bool) {
 	return 0, false
 }
 
+func (ats *Alpha1TileSet) appendSparse(r rune, pix []uint8) {
+	ats.Count++
+	ats.Sparse = append(ats.Sparse, RuneIndex{Rune: r, Index: uint16(ats.Count)})
+	ats.Pix = append(ats.Pix, pix...)
+	slices.SortFunc(ats.Sparse, func(a, b RuneIndex) int {
+		return cmp.Compare(a.Rune, b.Rune)
+	})
+}
+
+func (ats *Alpha1TileSet) convertToSparse() {
+	if len(ats.Sparse) > 0 {
+		return
+	}
+	if len(ats.Index) > 0 {
+		ats.Sparse = make([]RuneIndex, 0, ats.Count+1)
+		for i, ord := range ats.Index {
+			if ord != 0 {
+				ats.Sparse = append(ats.Sparse, RuneIndex{
+					Rune:  ats.First + rune(i),
+					Index: ord,
+				})
+			}
+		}
+		ats.Index = nil
+		ats.First = 0
+		return
+	}
+
+	ats.Sparse = make([]RuneIndex, 0, ats.Count+1)
+	for i := 0; i < ats.Count; i++ {
+		ats.Sparse = append(ats.Sparse, RuneIndex{
+			Rune:  ats.First + rune(i),
+			Index: uint16(i + 1),
+		})
+	}
+	ats.First = 0
+}
+
 func (ats *AlphaCellTileSet) lookupGlyph(r rune) ([16]uint8, bool) {
 	if ord, ok := ats.lookupOrdinal(r); ok && ord < len(ats.Cells) {
 		return ats.Cells[ord], true
 	}
-	if ats.Glyphs == nil {
-		return [16]uint8{}, false
-	}
-	pix, ok := ats.Glyphs[r]
-	return pix, ok
+	return [16]uint8{}, false
 }
 
 func (ats *AlphaCellTileSet) lookupOrdinal(r rune) (int, bool) {
@@ -567,4 +779,42 @@ func (ats *AlphaCellTileSet) lookupOrdinal(r rune) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+func (ats *AlphaCellTileSet) appendSparse(r rune, pix [16]uint8) {
+	ats.Count++
+	ats.Sparse = append(ats.Sparse, RuneIndex{Rune: r, Index: uint16(ats.Count)})
+	ats.Cells = append(ats.Cells, pix)
+	slices.SortFunc(ats.Sparse, func(a, b RuneIndex) int {
+		return cmp.Compare(a.Rune, b.Rune)
+	})
+}
+
+func (ats *AlphaCellTileSet) convertToSparse() {
+	if len(ats.Sparse) > 0 {
+		return
+	}
+	if len(ats.Index) > 0 {
+		ats.Sparse = make([]RuneIndex, 0, ats.Count+1)
+		for i, ord := range ats.Index {
+			if ord != 0 {
+				ats.Sparse = append(ats.Sparse, RuneIndex{
+					Rune:  ats.First + rune(i),
+					Index: ord,
+				})
+			}
+		}
+		ats.Index = nil
+		ats.First = 0
+		return
+	}
+
+	ats.Sparse = make([]RuneIndex, 0, ats.Count+1)
+	for i := 0; i < ats.Count; i++ {
+		ats.Sparse = append(ats.Sparse, RuneIndex{
+			Rune:  ats.First + rune(i),
+			Index: uint16(i + 1),
+		})
+	}
+	ats.First = 0
 }

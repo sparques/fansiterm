@@ -1,7 +1,9 @@
 package drawing
 
-import "image"
-import "github.com/sparques/fansiterm/tiles"
+import (
+	"github.com/sparques/fansiterm/tiles"
+	"image"
+)
 
 var TileSet = &tiles.AlphaCellTileSet{
 	Rectangle: image.Rect(0, 0, 8, 16),

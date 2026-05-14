@@ -1,7 +1,9 @@
 package fansi
 
-import "image"
-import "github.com/sparques/fansiterm/tiles"
+import (
+	"github.com/sparques/fansiterm/tiles"
+	"image"
+)
 
 var AltCharSet = &tiles.FontTileSet{
 	Rectangle: image.Rect(0, 0, 8, 16),
