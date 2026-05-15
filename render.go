@@ -30,7 +30,7 @@ type Render struct {
 		fg      Color
 		bg      Color
 		// G tracks our character sets, for now 0 and 1
-		g []*tiles.Tiler
+		g [2]*tiles.Tiler
 		// tracking shift-in/out
 		shift int
 	}

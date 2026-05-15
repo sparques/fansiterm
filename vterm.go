@@ -174,7 +174,6 @@ func NewWithCharSet(cols, rows int, buf draw.Image, charSet tiles.Tiler) *Device
 
 	d.useBuf(buf)
 
-	d.Render.active.g = make([]*tiles.Tiler, 2)
 	d.Reset()
 	d.updateAttr()
 
