@@ -21,7 +21,7 @@ func (d *Device) handleOSCSequence(seq []rune) {
 	case 0:
 		// xterm set window title
 		if cmdEnd < len(seq) {
-			d.Config.Properties[PropertyWindowTitle] = string(seq[cmdEnd+1:])
+			d.setProperty(PropertyWindowTitle, string(seq[cmdEnd+1:]))
 		}
 		d.configChange()
 	case 10: // query default foreground color

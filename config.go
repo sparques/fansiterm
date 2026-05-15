@@ -26,13 +26,18 @@ var ConfigDefault = Config{
 }
 
 func NewConfig() Config {
-	conf := ConfigDefault
-	conf.Properties = make(map[Property]string)
-	return conf
+	return ConfigDefault
 }
 
 func (d *Device) configChange() {
 	if d.ConfigUpdate != nil {
 		d.ConfigUpdate(d.Config)
 	}
+}
+
+func (d *Device) setProperty(prop Property, value string) {
+	if d.Config.Properties == nil {
+		d.Config.Properties = make(map[Property]string)
+	}
+	d.Config.Properties[prop] = value
 }
