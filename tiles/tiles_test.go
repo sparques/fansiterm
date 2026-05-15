@@ -252,10 +252,7 @@ func TestAlphaCellTileSetPackedSparseLookup(t *testing.T) {
 	ats := &AlphaCellTileSet{
 		Rectangle: image.Rect(0, 0, 8, 16),
 		Count:     2,
-		Sparse: []RuneIndex{
-			{Rune: 'x', Index: 1},
-			{Rune: 'z', Index: 2},
-		},
+		Sparse:    []rune{'x', 'z'},
 		Cells: [][16]uint8{
 			{0xAA},
 			{0x55},

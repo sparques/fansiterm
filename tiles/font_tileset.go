@@ -1,18 +1,11 @@
 package tiles
 
 import (
-	"cmp"
 	"image"
 	"image/color"
 	"image/draw"
 	"slices"
 )
-
-// RuneIndex maps a rune to a 1-based glyph ordinal in packed storage.
-type RuneIndex struct {
-	Rune  rune
-	Index uint16
-}
 
 type FontTileSet struct {
 	image.Rectangle
@@ -21,7 +14,7 @@ type FontTileSet struct {
 	First  rune
 	Count  int
 	Index  []uint16
-	Sparse []RuneIndex
+	Sparse []rune
 	Pix    []uint8
 
 	// glyph is reused to avoid per-call allocations in Glyph/GetTile.
@@ -159,9 +152,7 @@ func (fts *FontTileSet) Runes() []rune {
 		return rr
 	}
 
-	for _, entry := range fts.Sparse {
-		rr = append(rr, entry.Rune)
-	}
+	rr = append(rr, fts.Sparse...)
 	return rr
 }
 
@@ -232,7 +223,7 @@ type AlphaCellTileSet struct {
 	First  rune
 	Count  int
 	Index  []uint16
-	Sparse []RuneIndex
+	Sparse []rune
 	Cells  [][16]uint8
 
 	glyph AlphaCell
@@ -249,7 +240,7 @@ type Alpha1TileSet struct {
 	First  rune
 	Count  int
 	Index  []uint16
-	Sparse []RuneIndex
+	Sparse []rune
 	Pix    []uint8
 
 	glyph Alpha1
@@ -454,9 +445,7 @@ func (ats *AlphaCellTileSet) Runes() []rune {
 		return rr
 	}
 
-	for _, entry := range ats.Sparse {
-		rr = append(rr, entry.Rune)
-	}
+	rr = append(rr, ats.Sparse...)
 	return rr
 }
 
@@ -475,9 +464,7 @@ func (ats *Alpha1TileSet) Runes() []rune {
 		return rr
 	}
 
-	for _, entry := range ats.Sparse {
-		rr = append(rr, entry.Rune)
-	}
+	rr = append(rr, ats.Sparse...)
 	return rr
 }
 
@@ -632,23 +619,20 @@ func (fts *FontTileSet) lookupOrdinal(r rune) (int, bool) {
 		}
 	}
 	if len(fts.Sparse) > 0 {
-		i, ok := slices.BinarySearchFunc(fts.Sparse, r, func(entry RuneIndex, target rune) int {
-			return cmp.Compare(entry.Rune, target)
-		})
-		if ok {
-			return int(fts.Sparse[i].Index - 1), true
-		}
+		return slices.BinarySearch(fts.Sparse, r)
 	}
 	return 0, false
 }
 
 func (fts *FontTileSet) appendSparse(r rune, pix []uint8) {
+	i, ok := slices.BinarySearch(fts.Sparse, r)
+	if ok {
+		return
+	}
+	stride := fts.glyphArea()
 	fts.Count++
-	fts.Sparse = append(fts.Sparse, RuneIndex{Rune: r, Index: uint16(fts.Count)})
-	fts.Pix = append(fts.Pix, pix...)
-	slices.SortFunc(fts.Sparse, func(a, b RuneIndex) int {
-		return cmp.Compare(a.Rune, b.Rune)
-	})
+	fts.Sparse = slices.Insert(fts.Sparse, i, r)
+	fts.Pix = slices.Insert(fts.Pix, i*stride, pix...)
 }
 
 func (fts *FontTileSet) convertToSparse() {
@@ -656,26 +640,29 @@ func (fts *FontTileSet) convertToSparse() {
 		return
 	}
 	if len(fts.Index) > 0 {
-		fts.Sparse = make([]RuneIndex, 0, fts.Count+1)
+		stride := fts.glyphArea()
+		oldPix := fts.Pix
+		fts.Sparse = make([]rune, 0, fts.Count+1)
+		fts.Pix = make([]uint8, 0, len(oldPix))
 		for i, ord := range fts.Index {
 			if ord != 0 {
-				fts.Sparse = append(fts.Sparse, RuneIndex{
-					Rune:  fts.First + rune(i),
-					Index: ord,
-				})
+				start := int(ord-1) * stride
+				end := start + stride
+				if start >= 0 && end <= len(oldPix) {
+					fts.Sparse = append(fts.Sparse, fts.First+rune(i))
+					fts.Pix = append(fts.Pix, oldPix[start:end]...)
+				}
 			}
 		}
+		fts.Count = len(fts.Sparse)
 		fts.Index = nil
 		fts.First = 0
 		return
 	}
 
-	fts.Sparse = make([]RuneIndex, 0, fts.Count+1)
+	fts.Sparse = make([]rune, 0, fts.Count+1)
 	for i := 0; i < fts.Count; i++ {
-		fts.Sparse = append(fts.Sparse, RuneIndex{
-			Rune:  fts.First + rune(i),
-			Index: uint16(i + 1),
-		})
+		fts.Sparse = append(fts.Sparse, fts.First+rune(i))
 	}
 	fts.First = 0
 }
@@ -706,23 +693,20 @@ func (ats *Alpha1TileSet) lookupOrdinal(r rune) (int, bool) {
 		}
 	}
 	if len(ats.Sparse) > 0 {
-		i, ok := slices.BinarySearchFunc(ats.Sparse, r, func(entry RuneIndex, target rune) int {
-			return cmp.Compare(entry.Rune, target)
-		})
-		if ok {
-			return int(ats.Sparse[i].Index - 1), true
-		}
+		return slices.BinarySearch(ats.Sparse, r)
 	}
 	return 0, false
 }
 
 func (ats *Alpha1TileSet) appendSparse(r rune, pix []uint8) {
+	i, ok := slices.BinarySearch(ats.Sparse, r)
+	if ok {
+		return
+	}
+	stride := ats.glyphStride()
 	ats.Count++
-	ats.Sparse = append(ats.Sparse, RuneIndex{Rune: r, Index: uint16(ats.Count)})
-	ats.Pix = append(ats.Pix, pix...)
-	slices.SortFunc(ats.Sparse, func(a, b RuneIndex) int {
-		return cmp.Compare(a.Rune, b.Rune)
-	})
+	ats.Sparse = slices.Insert(ats.Sparse, i, r)
+	ats.Pix = slices.Insert(ats.Pix, i*stride, pix...)
 }
 
 func (ats *Alpha1TileSet) convertToSparse() {
@@ -730,26 +714,29 @@ func (ats *Alpha1TileSet) convertToSparse() {
 		return
 	}
 	if len(ats.Index) > 0 {
-		ats.Sparse = make([]RuneIndex, 0, ats.Count+1)
+		stride := ats.glyphStride()
+		oldPix := ats.Pix
+		ats.Sparse = make([]rune, 0, ats.Count+1)
+		ats.Pix = make([]uint8, 0, len(oldPix))
 		for i, ord := range ats.Index {
 			if ord != 0 {
-				ats.Sparse = append(ats.Sparse, RuneIndex{
-					Rune:  ats.First + rune(i),
-					Index: ord,
-				})
+				start := int(ord-1) * stride
+				end := start + stride
+				if start >= 0 && end <= len(oldPix) {
+					ats.Sparse = append(ats.Sparse, ats.First+rune(i))
+					ats.Pix = append(ats.Pix, oldPix[start:end]...)
+				}
 			}
 		}
+		ats.Count = len(ats.Sparse)
 		ats.Index = nil
 		ats.First = 0
 		return
 	}
 
-	ats.Sparse = make([]RuneIndex, 0, ats.Count+1)
+	ats.Sparse = make([]rune, 0, ats.Count+1)
 	for i := 0; i < ats.Count; i++ {
-		ats.Sparse = append(ats.Sparse, RuneIndex{
-			Rune:  ats.First + rune(i),
-			Index: uint16(i + 1),
-		})
+		ats.Sparse = append(ats.Sparse, ats.First+rune(i))
 	}
 	ats.First = 0
 }
@@ -771,23 +758,19 @@ func (ats *AlphaCellTileSet) lookupOrdinal(r rune) (int, bool) {
 		}
 	}
 	if len(ats.Sparse) > 0 {
-		i, ok := slices.BinarySearchFunc(ats.Sparse, r, func(entry RuneIndex, target rune) int {
-			return cmp.Compare(entry.Rune, target)
-		})
-		if ok {
-			return int(ats.Sparse[i].Index - 1), true
-		}
+		return slices.BinarySearch(ats.Sparse, r)
 	}
 	return 0, false
 }
 
 func (ats *AlphaCellTileSet) appendSparse(r rune, pix [16]uint8) {
+	i, ok := slices.BinarySearch(ats.Sparse, r)
+	if ok {
+		return
+	}
 	ats.Count++
-	ats.Sparse = append(ats.Sparse, RuneIndex{Rune: r, Index: uint16(ats.Count)})
-	ats.Cells = append(ats.Cells, pix)
-	slices.SortFunc(ats.Sparse, func(a, b RuneIndex) int {
-		return cmp.Compare(a.Rune, b.Rune)
-	})
+	ats.Sparse = slices.Insert(ats.Sparse, i, r)
+	ats.Cells = slices.Insert(ats.Cells, i, pix)
 }
 
 func (ats *AlphaCellTileSet) convertToSparse() {
@@ -795,26 +778,27 @@ func (ats *AlphaCellTileSet) convertToSparse() {
 		return
 	}
 	if len(ats.Index) > 0 {
-		ats.Sparse = make([]RuneIndex, 0, ats.Count+1)
+		oldCells := ats.Cells
+		ats.Sparse = make([]rune, 0, ats.Count+1)
+		ats.Cells = make([][16]uint8, 0, len(oldCells))
 		for i, ord := range ats.Index {
 			if ord != 0 {
-				ats.Sparse = append(ats.Sparse, RuneIndex{
-					Rune:  ats.First + rune(i),
-					Index: ord,
-				})
+				idx := int(ord - 1)
+				if idx >= 0 && idx < len(oldCells) {
+					ats.Sparse = append(ats.Sparse, ats.First+rune(i))
+					ats.Cells = append(ats.Cells, oldCells[idx])
+				}
 			}
 		}
+		ats.Count = len(ats.Sparse)
 		ats.Index = nil
 		ats.First = 0
 		return
 	}
 
-	ats.Sparse = make([]RuneIndex, 0, ats.Count+1)
+	ats.Sparse = make([]rune, 0, ats.Count+1)
 	for i := 0; i < ats.Count; i++ {
-		ats.Sparse = append(ats.Sparse, RuneIndex{
-			Rune:  ats.First + rune(i),
-			Index: uint16(i + 1),
-		})
+		ats.Sparse = append(ats.Sparse, ats.First+rune(i))
 	}
 	ats.First = 0
 }
