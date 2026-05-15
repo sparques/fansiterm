@@ -146,7 +146,6 @@ func NewWithCharSet(cols, rows int, buf draw.Image, charSet tiles.Tiler) *Device
 		cols: cols,
 		rows: rows,
 		Render: Render{
-			Image:         buf,
 			bounds:        bounds,
 			AltCharSet:    altCharSet,
 			CharSet:       charSet,
@@ -190,12 +189,15 @@ func NewAtResolution(x, y int, buf draw.Image, charSet tiles.Tiler) *Device {
 
 // NewAtResolutionWithCharSet returns a new Device sized to fit a resolution (x,y), centering the terminal.
 func NewAtResolutionWithCharSet(x, y int, buf draw.Image, charSet tiles.Tiler) *Device {
-	// TODO: This is a crappy way of figuring out what font we're using. Do something else.
-	d := NewWithCharSet(1, 1, nil, charSet)
-	// use d.Render.cell to figure out rows and cols; integer division will round down
-	// which is what we want
-	cols := x / d.Render.cell.Max.X
-	rows := y / d.Render.cell.Max.Y
+	if charSet == nil {
+		panic("fansiterm: charSet must be non-nil")
+	}
+
+	// Use the charset cell size to figure out rows and cols; integer division
+	// will round down, which is what we want.
+	cell := tileCell(charSet)
+	cols := x / cell.Dx()
+	rows := y / cell.Dy()
 
 	if buf == nil {
 		buf = image.NewRGBA(image.Rect(0, 0, x, y))
@@ -248,7 +250,10 @@ func (d *Device) useBuf(buf draw.Image) {
 	d.rows = buf.Bounds().Dy() / cell.Dy()
 
 	// save the old buf
-	origBuf := copyImage(d.Render.Image)
+	var origBuf image.Image
+	if d.Render.Image != nil {
+		origBuf = copyImage(d.Render.Image)
+	}
 
 	// figure out our actual terminal bounds.
 	bounds := image.Rect(0, 0, cell.Dx()*d.cols, cell.Dy()*d.rows).Add(buf.Bounds().Min)
@@ -321,7 +326,9 @@ func (d *Device) useBuf(buf draw.Image) {
 	}
 
 	d.Render.Fill(d.Render.Image.Bounds(), d.attrDefault.Bg)
-	draw.Draw(d.Render.Image, origBuf.Bounds(), origBuf, origBuf.Bounds().Min, draw.Src)
+	if origBuf != nil {
+		draw.Draw(d.Render.Image, origBuf.Bounds(), origBuf, origBuf.Bounds().Min, draw.Src)
+	}
 
 }
 
