@@ -234,6 +234,10 @@ func (d *Device) UseBuf(buf draw.Image) {
 }
 
 func (d *Device) useBuf(buf draw.Image) {
+	if wrapped, err := gfx.Wrap(buf); err == nil {
+		buf = wrapped
+	}
+
 	cell := d.Render.cell
 	d.cols = buf.Bounds().Dx() / cell.Dx()
 	d.rows = buf.Bounds().Dy() / cell.Dy()

@@ -273,7 +273,6 @@ func softVectorScroll(img draw.Image, region image.Rectangle, vector image.Point
 
 	return
 }
-
 func (r *Render) Scroll(pixAmt int) {
 	r.scroll(pixAmt)
 }

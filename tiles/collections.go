@@ -173,6 +173,11 @@ func (fc FullColorTileSet) drawTileImage(img image.Image, dst draw.Image, pt ima
 }
 
 func drawFullColorTile(dst draw.Image, pt image.Point, src image.Image, bg color.Color) {
+	if rgba, ok := dst.(*image.RGBA); ok {
+		drawFullColorTileRGBA(rgba, pt, src, bg)
+		return
+	}
+
 	bounds := src.Bounds()
 	width, height := bounds.Dx(), bounds.Dy()
 	bgr, bgg, bgb, _ := bg.RGBA()
@@ -199,6 +204,40 @@ func drawFullColorTile(dst draw.Image, pt image.Point, src image.Image, bg color
 					B: alphaBlend(bgb, b, alpha),
 					A: 0xFF,
 				})
+			}
+		}
+	}
+}
+
+func drawFullColorTileRGBA(dst *image.RGBA, pt image.Point, src image.Image, bg color.Color) {
+	bounds := src.Bounds()
+	width, height := bounds.Dx(), bounds.Dy()
+	bgc := colorToRGBA8(bg)
+
+	for y := 0; y < height; y++ {
+		srcY := bounds.Min.Y + y
+		dstRow := dst.PixOffset(pt.X, pt.Y+y)
+		for x := 0; x < width; x++ {
+			srcX := bounds.Min.X + x
+			i := dstRow + x*4
+			r, g, b, alpha := src.At(srcX, srcY).RGBA()
+			switch alpha {
+			case 0x0000:
+				dst.Pix[i+0] = bgc.r
+				dst.Pix[i+1] = bgc.g
+				dst.Pix[i+2] = bgc.b
+				dst.Pix[i+3] = bgc.a
+			case m:
+				dst.Pix[i+0] = uint8(r >> 8)
+				dst.Pix[i+1] = uint8(g >> 8)
+				dst.Pix[i+2] = uint8(b >> 8)
+				dst.Pix[i+3] = 0xFF
+			default:
+				blended := blendRGBA8(bgc, rgba8{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8), 0xFF}, uint8(alpha>>8))
+				dst.Pix[i+0] = blended.r
+				dst.Pix[i+1] = blended.g
+				dst.Pix[i+2] = blended.b
+				dst.Pix[i+3] = blended.a
 			}
 		}
 	}

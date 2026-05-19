@@ -7,6 +7,43 @@ import (
 	"slices"
 )
 
+type rgba8 struct {
+	r, g, b, a uint8
+}
+
+func colorToRGBA8(c color.Color) rgba8 {
+	r, g, b, a := c.RGBA()
+	return rgba8{uint8(r >> 8), uint8(g >> 8), uint8(b >> 8), uint8(a >> 8)}
+}
+
+func setRGBAPixel(dst *image.RGBA, x int, y int, c rgba8) {
+	i := dst.PixOffset(x, y)
+	dst.Pix[i+0] = c.r
+	dst.Pix[i+1] = c.g
+	dst.Pix[i+2] = c.b
+	dst.Pix[i+3] = c.a
+}
+
+func blend8(bg uint8, fg uint8, alpha uint8) uint8 {
+	a := uint32(alpha)
+	return uint8((uint32(bg)*(255-a) + uint32(fg)*a) / 255)
+}
+
+func blendRGBA8(bg rgba8, fg rgba8, alpha uint8) rgba8 {
+	if alpha == 0 {
+		return bg
+	}
+	if alpha == 0xFF {
+		return fg
+	}
+	return rgba8{
+		r: blend8(bg.r, fg.r, alpha),
+		g: blend8(bg.g, fg.g, alpha),
+		b: blend8(bg.b, fg.b, alpha),
+		a: 0xFF,
+	}
+}
+
 type FontTileSet struct {
 	image.Rectangle
 
@@ -166,6 +203,11 @@ func (fts *FontTileSet) drawTileImage(img image.Image, dst draw.Image, pt image.
 }
 
 func drawAlphaPixels(dst draw.Image, pt image.Point, pix []uint8, width int, height int, fg color.Color, bg color.Color) {
+	if rgba, ok := dst.(*image.RGBA); ok {
+		drawAlphaPixelsRGBA(rgba, pt, pix, width, height, fg, bg)
+		return
+	}
+
 	bgr, bgg, bgb, _ := bg.RGBA()
 	fgr, fgg, fgb, _ := fg.RGBA()
 
@@ -186,6 +228,37 @@ func drawAlphaPixels(dst draw.Image, pt image.Point, pix []uint8, width int, hei
 					B: alphaBlend(bgb, fgb, alpha),
 					A: 0xFF,
 				})
+			}
+		}
+	}
+}
+
+func drawAlphaPixelsRGBA(dst *image.RGBA, pt image.Point, pix []uint8, width int, height int, fg color.Color, bg color.Color) {
+	fgc := colorToRGBA8(fg)
+	bgc := colorToRGBA8(bg)
+
+	for y := 0; y < height; y++ {
+		row := y * width
+		dstRow := dst.PixOffset(pt.X, pt.Y+y)
+		for x := 0; x < width; x++ {
+			i := dstRow + x*4
+			switch alpha := pix[row+x]; alpha {
+			case 0x00:
+				dst.Pix[i+0] = bgc.r
+				dst.Pix[i+1] = bgc.g
+				dst.Pix[i+2] = bgc.b
+				dst.Pix[i+3] = bgc.a
+			case 0xFF:
+				dst.Pix[i+0] = fgc.r
+				dst.Pix[i+1] = fgc.g
+				dst.Pix[i+2] = fgc.b
+				dst.Pix[i+3] = fgc.a
+			default:
+				blended := blendRGBA8(bgc, fgc, alpha)
+				dst.Pix[i+0] = blended.r
+				dst.Pix[i+1] = blended.g
+				dst.Pix[i+2] = blended.b
+				dst.Pix[i+3] = blended.a
 			}
 		}
 	}
@@ -487,6 +560,11 @@ func (ats *Alpha1TileSet) drawTileImage(img image.Image, dst draw.Image, pt imag
 }
 
 func drawAlphaCell(dst draw.Image, pt image.Point, pix [16]uint8, fg color.Color, bg color.Color) {
+	if rgba, ok := dst.(*image.RGBA); ok {
+		drawAlphaCellRGBA(rgba, pt, pix, fg, bg)
+		return
+	}
+
 	_, _, _, bgAlpha := bg.RGBA()
 	drawBG := bgAlpha >= m/2
 
@@ -502,7 +580,37 @@ func drawAlphaCell(dst draw.Image, pt image.Point, pix [16]uint8, fg color.Color
 	}
 }
 
+func drawAlphaCellRGBA(dst *image.RGBA, pt image.Point, pix [16]uint8, fg color.Color, bg color.Color) {
+	fgc := colorToRGBA8(fg)
+	bgc := colorToRGBA8(bg)
+	drawBG := bgc.a >= 0x80
+
+	for y := 0; y < len(pix); y++ {
+		row := pix[y]
+		dstRow := dst.PixOffset(pt.X, pt.Y+y)
+		for x := 0; x < 8; x++ {
+			i := dstRow + x*4
+			if (row>>(7-x))&1 == 1 {
+				dst.Pix[i+0] = fgc.r
+				dst.Pix[i+1] = fgc.g
+				dst.Pix[i+2] = fgc.b
+				dst.Pix[i+3] = fgc.a
+			} else if drawBG {
+				dst.Pix[i+0] = bgc.r
+				dst.Pix[i+1] = bgc.g
+				dst.Pix[i+2] = bgc.b
+				dst.Pix[i+3] = bgc.a
+			}
+		}
+	}
+}
+
 func drawAlpha1Pixels(dst draw.Image, pt image.Point, pix []uint8, width int, height int, stride int, fg color.Color, bg color.Color) {
+	if rgba, ok := dst.(*image.RGBA); ok {
+		drawAlpha1PixelsRGBA(rgba, pt, pix, width, height, stride, fg, bg)
+		return
+	}
+
 	_, _, _, bgAlpha := bg.RGBA()
 	drawBG := bgAlpha >= m/2
 
@@ -513,6 +621,31 @@ func drawAlpha1Pixels(dst draw.Image, pt image.Point, pix []uint8, width int, he
 				dst.Set(pt.X+x, pt.Y+y, fg)
 			} else if drawBG {
 				dst.Set(pt.X+x, pt.Y+y, bg)
+			}
+		}
+	}
+}
+
+func drawAlpha1PixelsRGBA(dst *image.RGBA, pt image.Point, pix []uint8, width int, height int, stride int, fg color.Color, bg color.Color) {
+	fgc := colorToRGBA8(fg)
+	bgc := colorToRGBA8(bg)
+	drawBG := bgc.a >= 0x80
+
+	for y := 0; y < height; y++ {
+		row := y * stride
+		dstRow := dst.PixOffset(pt.X, pt.Y+y)
+		for x := 0; x < width; x++ {
+			i := dstRow + x*4
+			if (pix[row+x/8]>>(7-(x%8)))&1 == 1 {
+				dst.Pix[i+0] = fgc.r
+				dst.Pix[i+1] = fgc.g
+				dst.Pix[i+2] = fgc.b
+				dst.Pix[i+3] = fgc.a
+			} else if drawBG {
+				dst.Pix[i+0] = bgc.r
+				dst.Pix[i+1] = bgc.g
+				dst.Pix[i+2] = bgc.b
+				dst.Pix[i+3] = bgc.a
 			}
 		}
 	}
