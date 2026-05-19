@@ -6,7 +6,7 @@ import (
 	"image/draw"
 )
 
-func (d *Device) handleCSISequence(seq []rune) {
+func (d *Device) handleCSISequence(seq []byte) {
 	if len(seq) == 0 {
 		return
 	}
@@ -242,7 +242,7 @@ func (d *Device) handleCSISequence(seq []rune) {
 				}
 			default:
 				if ShowUnhandled {
-					log.Warn("unhandled SGR", "unhandled", args[i], "from", seqString(seq))
+					log.Warn("unhandled SGR", "unhandled", args[i], "from", string(seq))
 				}
 
 			} // switch for SGR
@@ -330,7 +330,7 @@ func (d *Device) handleCSISequence(seq []rune) {
 			// given fansiterm's intended use case, this is going unimplemented.
 		default:
 			if ShowUnhandled {
-				log.Warn("unhandled private escape sequence", seqString(seq))
+				log.Warn("unhandled private escape sequence", string(seq))
 			}
 		}
 	case 'r': // set scroll region
@@ -351,7 +351,7 @@ func (d *Device) handleCSISequence(seq []rune) {
 		d.cursor.RestorePos()
 	default:
 		if ShowUnhandled {
-			log.Warn("unhandled CSI", "sequence", seqString(seq))
+			log.Warn("unhandled CSI", "sequence", string(seq))
 		}
 	} // switch seq[len(seq)-1]
 }

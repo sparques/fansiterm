@@ -25,9 +25,9 @@ var (
 // HandleEscSequence handles escape sequences. This should be the whole complete
 // sequence. Bounds are not checked so an incomplete sequence will cause
 // a panic.
-func (d *Device) handleEscSequence(seq []rune) {
+func (d *Device) handleEscSequence(seq []byte) {
 	if ShowEsc {
-		log.Info("handling escape sequence", "sequence", seqString(seq))
+		log.Info("handling escape sequence", "sequence", string(seq))
 	}
 	switch seq[1] {
 	case '7': // save cursor position
@@ -83,7 +83,7 @@ func (d *Device) handleEscSequence(seq []rune) {
 		fallthrough
 	default:
 		if ShowUnhandled {
-			log.Warn("unhandled escape sequence", "sequence", seqString(seq))
+			log.Warn("unhandled escape sequence", "sequence", string(seq))
 		}
 	}
 	d.updateAttr()
@@ -91,7 +91,7 @@ func (d *Device) handleEscSequence(seq []rune) {
 
 // consumeEscSequence figures out where the escape sequence in data ends.
 // It assumes data[0] == 0x1b.
-func consumeEscSequence(data []rune) (n int, err error) {
+func consumeEscSequence(data []byte) (n int, err error) {
 	if len(data) < 2 {
 		// need more bytes
 		return 0, errEscapeSequenceIncomplete
@@ -134,11 +134,11 @@ func consumeEscSequence(data []rune) (n int, err error) {
 
 // getNumericArgs beaks apart seq at ';' characters and then tries to convert
 // each piece into an integer. If it fails to convert, def is used.
-func getNumericArgs(seq []rune, def int) (args []int) {
+func getNumericArgs(seq []byte, def int) (args []int) {
 	return appendNumericArgs(args, seq, def)
 }
 
-func appendNumericArgs(dst []int, seq []rune, def int) []int {
+func appendNumericArgs(dst []int, seq []byte, def int) []int {
 	if len(seq) == 0 {
 		return append(dst, def)
 	}
@@ -155,7 +155,7 @@ func appendNumericArgs(dst []int, seq []rune, def int) []int {
 	return dst
 }
 
-func parseNumericArg(seq []rune, def int) int {
+func parseNumericArg(seq []byte, def int) int {
 	if len(seq) == 0 {
 		return def
 	}
@@ -188,7 +188,7 @@ func bound[N constraints.Integer](x, minimum, maximum N) N {
 	return min(max(x, minimum), maximum)
 }
 
-func trimST(seq []rune) []rune {
+func trimST(seq []byte) []byte {
 	if len(seq) == 0 {
 		return seq
 	}
@@ -204,7 +204,7 @@ func trimST(seq []rune) []rune {
 
 // DecodeImageData accepts base64 encoded data and attempts to
 // decode it as an image, returning the image.
-func DecodeImageData(data []rune) (image.Image, error) {
+func DecodeImageData(data []byte) (image.Image, error) {
 	pixData, err := base64.StdEncoding.DecodeString(string(data))
 	if err != nil {
 		return nil, err
@@ -215,7 +215,7 @@ func DecodeImageData(data []rune) (image.Image, error) {
 	return img, err
 }
 
-func splitParams(data []rune) (split [][]rune) {
+func splitParams(data []byte) (split [][]byte) {
 	prev := 0
 	for i := range data {
 		if data[i] == ';' {
@@ -248,7 +248,7 @@ func getRGB(args []int) (r, g, b uint8) {
 	return
 }
 
-func parsePoint(seq []rune) (pt image.Point, ok bool) {
+func parsePoint(seq []byte) (pt image.Point, ok bool) {
 	x, n, ok := parseIntPrefix(seq)
 	if !ok || n >= len(seq) || seq[n] != ',' {
 		return image.Point{}, false
@@ -263,7 +263,7 @@ func parsePoint(seq []rune) (pt image.Point, ok bool) {
 	return image.Pt(x, y), true
 }
 
-func parseRect(seq []rune) (rect image.Rectangle, ok bool) {
+func parseRect(seq []byte) (rect image.Rectangle, ok bool) {
 	var n int
 	rect.Min.X, n, ok = parseIntPrefix(seq)
 	if !ok || n >= len(seq) || seq[n] != ',' {
@@ -294,7 +294,7 @@ func parseRect(seq []rune) (rect image.Rectangle, ok bool) {
 	return rect, true
 }
 
-func parseIntPrefix(seq []rune) (value int, consumed int, ok bool) {
+func parseIntPrefix(seq []byte) (value int, consumed int, ok bool) {
 	if len(seq) == 0 {
 		return 0, 0, false
 	}

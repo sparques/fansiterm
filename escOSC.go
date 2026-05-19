@@ -5,7 +5,7 @@ import (
 	"image/color"
 )
 
-func (d *Device) handleOSCSequence(seq []rune) {
+func (d *Device) handleOSCSequence(seq []byte) {
 	seq = trimST(seq)
 	if len(seq) == 0 {
 		// what does an empty OSC sequence mean?
@@ -32,7 +32,7 @@ func (d *Device) handleOSCSequence(seq []rune) {
 		fmt.Fprintf(d.Output, "\x1b]11;rgb:%d/%d/%d\x1b\\", bg.R, bg.G, bg.B)
 	default:
 		if ShowUnhandled {
-			log.Warn("unhandled OSC", "sequence", seqString(seq))
+			log.Warn("unhandled OSC", "sequence", string(seq))
 		}
 	}
 }

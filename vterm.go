@@ -58,7 +58,8 @@ type Device struct {
 
 	// inputBuf buffers chracters between write calls. This is exclusively used to
 	// buffer incomplete escape sequences.
-	inputBuf []rune
+	inputBuf       bytes.Buffer
+	MaxInputBuffer int
 
 	// saveBuf is used to store the main buffer when the alternate screen
 	// is used.
@@ -75,15 +76,6 @@ type Device struct {
 	// is the same Reset triggered by an \x1bc escape sequence. This can be used
 	// to reset a hardware display.
 	UserResetFunc func()
-
-	// writeQueue is a channel for queuing up writes. On large systems, this is
-	// not necessary. But in constrained spaces like microcontrollers, Write is
-	// likely being called from an interrupt service routine and needs to return
-	// as quickly as possible. So Write() copies data and then puts it into
-	// the writeQueue
-	// Writing to a chan in an ISR isn't great either, but the chan should be
-	// sized such that it never blocks.
-	writeQueue chan []byte
 
 	done chan struct{}
 
@@ -140,8 +132,7 @@ func NewWithCharSet(cols, rows int, buf draw.Image, charSet tiles.Tiler) *Device
 	altCharSet := altCharsetViaUnicode(charSet)
 
 	d := &Device{
-		writeQueue: make(chan []byte, 256),
-		done:       make(chan struct{}),
+		done: make(chan struct{}),
 		// bufChan:    make(chan draw.Image),
 		cols: cols,
 		rows: rows,
@@ -175,8 +166,6 @@ func NewWithCharSet(cols, rows int, buf draw.Image, charSet tiles.Tiler) *Device
 
 	d.Reset()
 	d.updateAttr()
-
-	go d.queueHandler()
 
 	return d
 }
@@ -438,16 +427,10 @@ func (d *Device) Size() (int, int) {
 // is written to Device, the beginning will be bufferred and prepended to the next write.
 // Certain broken escape sequence can potentially block forever.
 func (d *Device) Write(data []byte) (n int, err error) {
-	// this function exists to shorten the amount of code that runs potentially
-	// triggered by an interrupt if we're getting data from UART or SPI.
-	// Doing a chan write and allocating memory are also not great to do in
-	// an interrupt, but we're going with the lesser evils.
+	d.inputBuf.Write(data)
 
-	// copy data
-	dataCopy := make([]byte, len(data))
-	copy(dataCopy, data)
-	// shove into write queue
-	d.writeQueue <- dataCopy
+	d.write()
+
 	return len(data), nil
 }
 
@@ -466,26 +449,30 @@ func (d *Device) preUpdate() {
 
 // postUpdate runs tasks necessary after updating pixels--e.g. showing cursor
 func (d *Device) postUpdate() {
+
+	// Re-paint cursor if needed
+	d.showCursor()
+
 	if d.Render.DisplayFunc != nil {
 		d.Render.DisplayFunc()
 	}
 }
 
 // write is the actual implementation. Write
-func (d *Device) write(data []byte) (n int, err error) {
+func (d *Device) write() {
 	d.Lock()
 
-	runes := bytes.Runes(data)
+	var n int
 
 	d.preUpdate()
 
-	if len(d.inputBuf) != 0 {
-		runes = append(d.inputBuf, runes...)
-		d.inputBuf = []rune{}
-	}
-
-	for i := 0; i < len(runes); i++ {
-		switch runes[i] {
+input:
+	for d.inputBuf.Len() > 0 {
+		r, _, err := d.inputBuf.ReadRune()
+		if err != nil {
+			break
+		}
+		switch r {
 		case '\a': // bell
 			if d.BellFunc != nil {
 				d.BellFunc("bel")
@@ -521,15 +508,13 @@ func (d *Device) write(data []byte) (n int, err error) {
 			d.Render.active.shift = 0
 			d.updateAttr()
 		case 0x1b: // ESC aka ^[
-			n, err = consumeEscSequence(runes[i:])
+			d.inputBuf.UnreadRune()
+			buf, _ := d.inputBuf.Peek(d.inputBuf.Len())
+			n, err = consumeEscSequence(buf)
 			if err != nil {
-				// copy runes[i:] to d.inputBuf and wait for more input
-				d.inputBuf = runes[i:]
-				i += len(runes[i:])
-				break
+				break input
 			}
-			d.handleEscSequence(runes[i : i+n])
-			i += n - 1
+			d.handleEscSequence(d.inputBuf.Next(n))
 		default:
 			// if we're past the end of the screen (remember, d.cols=number of columns but cursor.col is 0 indexed)
 			if d.cursor.col == d.cols {
@@ -546,20 +531,17 @@ func (d *Device) write(data []byte) (n int, err error) {
 			// increment cursor by width of rune
 			// FIXME: corner case where a >1 width rune happens
 			// at the last column
-			d.cursor.col += d.RenderRune(runes[i])
+
+			d.cursor.col += d.RenderRune(r)
 			if !d.Config.Wraparound {
 				d.cursor.col = bound(d.cursor.col, 0, d.cols-1)
 			}
 		}
 	}
 
-	// Re-paint cursor if needed
-	d.showCursor()
-
 	d.postUpdate()
 
 	d.Unlock()
-	return len(data), nil
 }
 
 func rectDiff(a, b image.Rectangle) (right, bottom image.Rectangle) {

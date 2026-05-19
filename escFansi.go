@@ -21,13 +21,13 @@ func colorToHex(c color.Color) string {
 	return fmt.Sprintf("#%02x%02x%02x", r, g, b)
 }
 
-func (d *Device) handleFansiSequence(seq []rune) {
+func (d *Device) handleFansiSequence(seq []byte) {
 	seq = trimST(seq)
 	if len(seq) <= 1 {
 		// Doing nothing seems safe...
 		return
 	}
-	var params [3][]rune
+	var params [3][]byte
 	paramCount := splitParamsMax(seq[1:], params[:])
 	switch seq[0] {
 	case 'A', 'a': // A for At(); report color at pixel specified by absolute addressing (A) or relative to cursor (a)
@@ -500,7 +500,7 @@ func (d *Device) handleFansiSequence(seq []rune) {
 
 }
 
-func splitParamsMax(data []rune, dst [][]rune) int {
+func splitParamsMax(data []byte, dst [][]byte) int {
 	if len(dst) == 0 {
 		return 0
 	}
@@ -523,7 +523,7 @@ func splitParamsMax(data []rune, dst [][]rune) int {
 	return n + 1
 }
 
-func parseHexByte(data []rune) (uint8, bool) {
+func parseHexByte(data []byte) (uint8, bool) {
 	if len(data) != 2 {
 		return 0, false
 	}
@@ -538,7 +538,7 @@ func parseHexByte(data []rune) (uint8, bool) {
 	return hi<<4 | lo, true
 }
 
-func hexNibble(r rune) (uint8, bool) {
+func hexNibble(r byte) (uint8, bool) {
 	switch {
 	case r >= '0' && r <= '9':
 		return uint8(r - '0'), true
