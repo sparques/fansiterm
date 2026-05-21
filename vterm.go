@@ -129,7 +129,7 @@ func NewWithCharSet(cols, rows int, buf draw.Image, charSet tiles.Tiler) *Device
 	// shift around
 	bounds = bounds.Add(offset)
 
-	altCharSet := altCharsetViaUnicode(charSet)
+	altCharSet := AltCharsetViaUnicode(charSet)
 
 	d := &Device{
 		done: make(chan struct{}),
@@ -512,10 +512,10 @@ input:
 			d.Render.active.shift = 0
 			d.updateAttr()
 		case 0x1b: // ESC aka ^[
-			d.inputBuf.UnreadRune()
 			buf, _ := d.inputBuf.Peek(d.inputBuf.Len())
 			n, err = consumeEscSequence(buf)
 			if err != nil {
+				d.inputBuf.UnreadRune()
 				break input
 			}
 			d.handleEscSequence(d.inputBuf.Next(n))

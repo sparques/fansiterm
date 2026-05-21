@@ -42,7 +42,7 @@ var altToUnicode = map[rune]rune{
 
 // altCharsetViaUnicode takes a tiles.Tiler and remaps code points
 // for graphical symbols.
-func altCharsetViaUnicode(ts tiles.Tiler) (rm *tiles.Remap) {
+func AltCharsetViaUnicode(ts tiles.Tiler) (rm *tiles.Remap) {
 	rm = tiles.NewRemap(ts)
 	rm.Map = altToUnicode
 	return

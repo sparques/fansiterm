@@ -29,7 +29,7 @@ func (d *Device) handleEscSequence(seq []byte) {
 	if ShowEsc {
 		log.Info("handling escape sequence", "sequence", string(seq))
 	}
-	switch seq[1] {
+	switch seq[0] {
 	case '7': // save cursor position
 		d.cursor.prevPos[0] = d.cursor.col
 		d.cursor.prevPos[1] = d.cursor.row
@@ -43,9 +43,9 @@ func (d *Device) handleEscSequence(seq []byte) {
 	// 	// abuse inputBuf...
 	// 	d.inputBuf = append(d.inputBuf, slices.Repeat([]rune{'E'}, d.rows*d.cols)...)
 	case '[':
-		d.handleCSISequence(seq[2:])
+		d.handleCSISequence(seq[1:])
 	case ']':
-		d.handleOSCSequence(seq[2:])
+		d.handleOSCSequence(seq[1:])
 	case 'M': // Move cursor up; if at top of screen, scroll up one line
 		if d.cursor.row == 0 {
 			d.Scroll(-1)
@@ -53,7 +53,7 @@ func (d *Device) handleEscSequence(seq []byte) {
 			d.cursor.row--
 		}
 	case '(': // set G0
-		switch seq[2] {
+		switch seq[1] {
 		case '0':
 			// d.Render.G0 = d.Render.AltCharSet
 			d.Render.active.g[0] = &d.Render.AltCharSet
@@ -65,7 +65,7 @@ func (d *Device) handleEscSequence(seq []byte) {
 		}
 	case ')': // set G1
 		// B for regular, 0 for line drawing
-		switch seq[2] {
+		switch seq[1] {
 		case '0':
 			// d.Render.G1 = d.Render.AltCharSet
 			d.Render.active.g[1] = &d.Render.AltCharSet
@@ -76,7 +76,7 @@ func (d *Device) handleEscSequence(seq []byte) {
 			d.Render.active.g[1] = &d.Render.CharSet
 		}
 	case '/':
-		d.handleFansiSequence(seq[2:])
+		d.handleFansiSequence(seq[1:])
 	case '>': // auxilary keypad numeric mode
 		fallthrough
 	case '=': // auxilary keypad application mode
@@ -90,42 +90,42 @@ func (d *Device) handleEscSequence(seq []byte) {
 }
 
 // consumeEscSequence figures out where the escape sequence in data ends.
-// It assumes data[0] == 0x1b.
+// It assumes data[0] is the first byte *after* 0x1b.
 func consumeEscSequence(data []byte) (n int, err error) {
-	if len(data) < 2 {
+	if len(data) < 1 {
 		// need more bytes
 		return 0, errEscapeSequenceIncomplete
 	}
-	switch data[1] {
+	switch data[0] {
 	case 'X', ']', 'P', '/': // SOS, OSC, DCS, and my own private sequence
 		// For Start of String, Operating System Command, and Device Control String, read
 		// until we encounter String Terminator, ESC\
 		for n = 1; n < len(data); n++ {
 			// handle ESC]R
-			if n == 2 && data[n] == 'R' && data[n-1] == ']' {
-				return n + 2, nil
+			if n == 1 && data[n] == 'R' && data[n-1] == ']' {
+				return n + 1, nil
 			}
 			if data[n] == '\a' || (data[n-1] == 0x1b && data[n] == '\\') {
 				return n + 1, nil
 			}
 		}
 	case '[': // CSI
-		for n = 2; n < len(data); n++ {
+		for n = 1; n < len(data); n++ {
 			if data[n] >= 0x40 {
 				return n + 1, nil
 			}
 		}
 		return 0, errEscapeSequenceIncomplete
 	case '(', ')':
-		if len(data) < 3 {
+		if len(data) < 2 {
 			return 0, errEscapeSequenceIncomplete
 		}
 		// ESC(0 for line drawing
 		// ESC(B for regular
-		return 3, nil
+		return 2, nil
 	default:
 		// Unsupported escape sequence, just skip it?
-		return 2, nil
+		return 1, nil
 	}
 
 	// got to here? need more data
