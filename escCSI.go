@@ -60,8 +60,8 @@ func (d *Device) handleCSISequence(seq []byte) {
 			d.Clear(0, d.cursor.row, d.cursor.col, d.cursor.row+1)
 			// clear area above cursor
 			d.Clear(0, 0, d.cols, d.cursor.row)
-		case 2:
-			// clear whole screen
+		case 2, 3:
+			// clear whole screen (we don't have scroll back)
 			d.Clear(0, 0, d.cols, d.rows)
 		}
 
@@ -242,7 +242,7 @@ func (d *Device) handleCSISequence(seq []byte) {
 				}
 			default:
 				if ShowUnhandled {
-					log.Warn("unhandled SGR", "unhandled", args[i], "from", string(seq))
+					log.Warn("unhandled SGR", "unhandled", args[i], "from", seqString(seq))
 				}
 
 			} // switch for SGR
@@ -297,7 +297,7 @@ func (d *Device) handleCSISequence(seq []byte) {
 					d.toggleCursor()
 				}
 			}
-		case 1000, 1002, 1003: // enable/disable mouse even reports
+		case 1000, 1002, 1003: // enable/disable mouse event reports
 			if set {
 				d.Config.MouseEvents = args[0]
 			} else {
@@ -307,6 +307,12 @@ func (d *Device) handleCSISequence(seq []byte) {
 		case 1006:
 			d.Config.MouseSGR = set
 			d.configChange()
+		case 1048: // save/restore cursor
+			if set {
+				d.cursor.SavePos()
+			} else {
+				d.cursor.RestorePos()
+			}
 		// no, not supported
 		case 47, 1049: // alt screen enable/disable
 			// 47 is save/restore screen.
@@ -330,7 +336,7 @@ func (d *Device) handleCSISequence(seq []byte) {
 			// given fansiterm's intended use case, this is going unimplemented.
 		default:
 			if ShowUnhandled {
-				log.Warn("unhandled private escape sequence", string(seq))
+				log.Warn("unhandled private escape sequence", seqString(seq))
 			}
 		}
 	case 'r': // set scroll region
@@ -351,7 +357,7 @@ func (d *Device) handleCSISequence(seq []byte) {
 		d.cursor.RestorePos()
 	default:
 		if ShowUnhandled {
-			log.Warn("unhandled CSI", "sequence", string(seq))
+			log.Warn("unhandled CSI", "sequence", seqString(seq))
 		}
 	} // switch seq[len(seq)-1]
 }

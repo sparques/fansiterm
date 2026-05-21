@@ -27,7 +27,7 @@ var (
 // a panic.
 func (d *Device) handleEscSequence(seq []byte) {
 	if ShowEsc {
-		log.Info("handling escape sequence", "sequence", string(seq))
+		log.Info("handling escape sequence", "sequence", seqString(seq))
 	}
 	switch seq[0] {
 	case '7': // save cursor position
@@ -83,7 +83,7 @@ func (d *Device) handleEscSequence(seq []byte) {
 		fallthrough
 	default:
 		if ShowUnhandled {
-			log.Warn("unhandled escape sequence", "sequence", string(seq))
+			log.Warn("unhandled escape sequence", "sequence", seqString(seq))
 		}
 	}
 	d.updateAttr()
@@ -101,10 +101,6 @@ func consumeEscSequence(data []byte) (n int, err error) {
 		// For Start of String, Operating System Command, and Device Control String, read
 		// until we encounter String Terminator, ESC\
 		for n = 1; n < len(data); n++ {
-			// handle ESC]R
-			if n == 1 && data[n] == 'R' && data[n-1] == ']' {
-				return n + 1, nil
-			}
 			if data[n] == '\a' || (data[n-1] == 0x1b && data[n] == '\\') {
 				return n + 1, nil
 			}
@@ -320,7 +316,7 @@ func parseIntPrefix(seq []byte) (value int, consumed int, ok bool) {
 	return sign * value, consumed, true
 }
 
-func seqString(seq []rune) string {
+func seqString(seq []byte) string {
 	return strings.Map(func(in rune) rune {
 		switch in {
 		case 0x1b:
