@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"image/png"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/sparques/fansiterm/tiles/fansi"
@@ -16,8 +17,8 @@ func Test_RenderScreenshot(t *testing.T) {
 	term := NewAtResolution(240, 135, nil, testCharSet())
 
 	term.Write([]byte(" \x1b[34m\x0e(\x0f\x1b[44;97;1mFANSITERM™\x0e\x1b[34;41;22m)\x0f \x1b[37mTX v1.0\x1b[40;31m\x0e>\x0f\x1b[m\n\n"))
-	term.Write([]byte("  Freq:\t\t\x0e{\x1b[7m433\x0f MHz\x0e\x1b[27m}\x0f\n\n"))
-	term.Write([]byte("  Bandwidth:\t\x0e{\x1b[7m005\x0f KHz\x0e\x1b[27m}\x0f\n\n"))
+	fmt.Fprintf(term, "\x1b[0m  Freq:\t\t\x0e{\x1b[7m%s\x0f MHz\x0e\x1b[27m}\x0f\n\n", segmentDisplay("443"))
+	fmt.Fprintf(term, "  Bandwidth:\t\x0e{\x1b[7m%s\x0f KHz\x0e\x1b[27m}\x0f\n\n", segmentDisplay("005"))
 
 	// generate a horizontal gradient tile
 	gradientTile := image.NewAlpha(image.Rect(0, 0, 8, 16))
@@ -45,4 +46,13 @@ func Test_RenderScreenshot(t *testing.T) {
 
 	png.Encode(fh, term.Render)
 	fh.Close()
+}
+
+func segmentDisplay(str string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= '0' && r <= '9' {
+			return r - '0' + '🯰'
+		}
+		return r
+	}, str)
 }
