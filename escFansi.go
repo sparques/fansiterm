@@ -475,16 +475,10 @@ func (d *Device) handleFansiSequence(seq []byte) {
 		if err != nil {
 			return
 		}
-
-		if d.Render.User == nil {
-			d.Render.User = tiles.NewFullColorTileSet()
-			d.Render.AltCharSet = tiles.NewMultiTileSet(d.Render.User, d.Render.AltCharSet)
-		}
-
-		// TODO: convert to native pixel format using NewImage
 		rn := parseNumericArg(params[0], 0)
 
-		d.Render.User[rune(rn)] = img
+		d.AssignRune(rune(rn), img)
+
 	case 'V': // V for vectorScroll
 		var (
 			region image.Rectangle
@@ -498,6 +492,15 @@ func (d *Device) handleFansiSequence(seq []byte) {
 		d.Render.VectorScroll(region, vector)
 	}
 
+}
+
+func (d *Device) AssignRune(r rune, img image.Image) {
+	if d.Render.User == nil {
+		d.Render.User = tiles.NewFullColorTileSet()
+		d.Render.AltCharSet = tiles.NewMultiTileSet(d.Render.User, d.Render.AltCharSet)
+	}
+
+	d.Render.User[rune(r)] = img
 }
 
 func splitParamsMax(data []byte, dst [][]byte) int {
